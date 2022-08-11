@@ -4,7 +4,7 @@
  *
  * This file is part of ImpactX.
  *
- * Authors: Axel Huebl, Chad Mitchell, Ji Qiang
+ * Authors: Axel Huebl, Chad Mitchell, Ji Qiang, Marco Garten
  * License: BSD-3-Clause-LBNL
  */
 #ifndef IMPACT_X_H
@@ -126,8 +126,10 @@ namespace impactx
         std::unordered_map<int, amrex::MultiFab> m_rho;
         /** scalar potential per level */
         std::unordered_map<int, amrex::MultiFab> m_phi;
-        /** space charge force (vector) per level */
-        std::unordered_map<int, std::unordered_map<std::string, amrex::MultiFab> > m_space_charge_force;
+        /** space charge force (component) per level */
+        std::unordered_map<int, amrex::MultiFab> m_scf_x;
+        std::unordered_map<int, amrex::MultiFab> m_scf_y;
+        std::unordered_map<int, amrex::MultiFab> m_scf_z;
 
         /** these are elements defining the accelerator lattice */
         std::list<KnownElements> m_lattice;

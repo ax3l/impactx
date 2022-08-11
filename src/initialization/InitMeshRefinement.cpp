@@ -4,7 +4,7 @@
  *
  * This file is part of ImpactX.
  *
- * Authors: Axel Huebl, Chad Mitchell, Remi Lehe
+ * Authors: Axel Huebl, Chad Mitchell, Remi Lehe, Marco Garten
  * License: BSD-3-Clause-LBNL
  */
 #include "ImpactX.H"
@@ -78,24 +78,34 @@ namespace impactx
             lev,
             amrex::MultiFab{amrex::convert(cba, phi_nodal_flag), dm, num_components_phi, num_guards_phi, tag("phi")});
 
-        // space charge force
-        for (std::string const comp : {"x", "y", "z"})
-        {
-            std::string const str_tag = "space_charge_force_" + comp;
-
-            std::unordered_map<std::string, amrex::MultiFab> f_comp;
-            f_comp.emplace(
-                comp,
-                amrex::MultiFab{
-                    amrex::convert(cba, rho_nodal_flag),
-                    dm,
-                    num_components_rho,
-                    num_guards_rho,
-                    tag(str_tag)
-                }
-            );
-            m_space_charge_force.emplace(lev, std::move(f_comp));
-        }
+        // @TODO replace the explicit construction in three single steps with one that can be addressed via its component
+        m_scf_x.emplace(lev,
+                        amrex::MultiFab{
+                                amrex::convert(cba, phi_nodal_flag),
+                                dm,
+                                num_components_phi,
+                                num_guards_phi,
+                                tag("space_charge_force_x")
+                        }
+                        );
+        m_scf_y.emplace(lev,
+                        amrex::MultiFab{
+                                amrex::convert(cba, phi_nodal_flag),
+                                dm,
+                                num_components_phi,
+                                num_guards_phi,
+                                tag("space_charge_force_y")
+                        }
+        );
+        m_scf_z.emplace(lev,
+                        amrex::MultiFab{
+                                amrex::convert(cba, phi_nodal_flag),
+                                dm,
+                                num_components_phi,
+                                num_guards_phi,
+                                tag("space_charge_force_z")
+                        }
+        );
     }
 
     /** Make a new level using provided BoxArray and DistributionMapping and fill
@@ -130,7 +140,9 @@ namespace impactx
     {
         m_rho.erase(lev);
         m_phi.erase(lev);
-        m_space_charge_force.erase(lev);
+        m_scf_x.erase(lev);
+        m_scf_y.erase(lev);
+        m_scf_z.erase(lev);
     }
 
     void ImpactX::ResizeMesh ()

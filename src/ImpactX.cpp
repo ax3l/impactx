@@ -4,7 +4,7 @@
  *
  * This file is part of ImpactX.
  *
- * Authors: Axel Huebl, Chad Mitchell, Ji Qiang, Remi Lehe
+ * Authors: Axel Huebl, Chad Mitchell, Ji Qiang, Remi Lehe, Marco Garten
  * License: BSD-3-Clause-LBNL
  */
 #include "ImpactX.H"
@@ -13,6 +13,7 @@
 #include "particles/Push.H"
 #include "particles/diagnostics/DiagnosticOutput.H"
 #include "particles/spacecharge/PoissonSolve.H"
+#include "particles/spacecharge/ForceFromSelfFields.H"
 #include "particles/transformation/CoordinateTransformation.H"
 
 #include <AMReX.H>
@@ -148,9 +149,14 @@ namespace impactx
                     // poisson solve in x,y,z
                     spacecharge::PoissonSolve(*m_particle_container, m_phi, m_rho);
 
-                    // calculate force
-                    // TODO: FDTD stencil m_phi -> m_space_charge
+                    // calculate force in x,y,z
+                    //  TODO replace with Vector or unordered map once MultiFab constructor works
                     // nodal: (-1 and +1) / 2dx
+                    spacecharge::ForceFromSelfFields(m_phi,
+                                                     m_scf_x,
+                                                     m_scf_y,
+                                                     m_scf_z,
+                                                     this->geom);
 
                     // gather and space-charge push in x,y,z , assuming the space-charge
                     // field is the same before/after transformation
