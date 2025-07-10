@@ -23,9 +23,9 @@ namespace impactx::elements::transformation
      *
      * Splits up every element that is on s = N * ds for N>0.
      *
-     * @param[in] list element lattice list
+     * @param[in] list element lattice list (moved)
      * @param[in] ds spacing in meters along s to add an element
-     * @param[in] element the extra element to add every s
+     * @param[in] element the extra element to add every s (moved)
      * @return modified list with inserted elements
      */
     std::list<elements::KnownElements>

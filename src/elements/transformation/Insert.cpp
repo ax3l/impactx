@@ -42,7 +42,7 @@ namespace impactx::elements::transformation
         while (!list.empty())
         {
             // copy out front element
-            elements::KnownElements cur_element_variant = list.front();
+            elements::KnownElements cur_element_variant = std::move(list.front());
             list.pop_front();
 
             // check where the current element ends
@@ -58,7 +58,7 @@ namespace impactx::elements::transformation
                 amrex::ParticleReal const s_rel_insert = s_next_insert - s;
 
                 // split element and shorten each part
-                elements::KnownElements cur_element_leftover = cur_element_variant;
+                elements::KnownElements cur_element_leftover = std::move(cur_element_variant);
                 std::visit([&s_rel_insert](auto &&cur_element)
                 {
                     if constexpr(std::is_base_of_v<elements::mixin::Thin, std::decay_t<decltype(cur_element)>>)
@@ -82,11 +82,11 @@ namespace impactx::elements::transformation
                 }, cur_element_leftover);
 
                 // insert element in between
-                new_list.push_back(cur_element_variant);
+                new_list.push_back(std::move(cur_element_variant));
                 new_list.push_back(element);
 
                 // add leftover element to front of old list
-                list.push_front(cur_element_leftover);
+                list.push_front(std::move(cur_element_leftover));
 
                 s += s_rel_insert;
                 s_next_insert += ds;
@@ -94,7 +94,7 @@ namespace impactx::elements::transformation
             // case 2: current element ends exactly with next insert
             else if (s_next_insert == cur_s_out) {
                 // copy current element
-                new_list.push_back(cur_element_variant);
+                new_list.push_back(std::move(cur_element_variant));
                 // insert element
                 new_list.push_back(element);
 

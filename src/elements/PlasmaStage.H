@@ -27,10 +27,14 @@
 #include <stdexcept>
 #include <functional>
 #include <cmath> // M_PI
+#include <memory> // For std::unique_ptr
 
 
 namespace impactx::elements
 {
+    // Forward declaration
+    class Quasistatic2DWakefield;
+
     struct PlasmaStage
     : public mixin::Named,
       public mixin::BeamOptic<PlasmaStage>,
@@ -106,6 +110,12 @@ namespace impactx::elements
                 throw std::runtime_error("PlasmaStage: density must be > 0!");
             }
         }
+
+        // Rule of five for unique_ptr
+        PlasmaStage(const PlasmaStage&) = default;
+        PlasmaStage& operator=(const PlasmaStage&) = default;
+        PlasmaStage(PlasmaStage&&) = default;
+        PlasmaStage& operator=(PlasmaStage&&) = default;
 
         /** Push all particles */
         using BeamOptic::operator();
@@ -200,7 +210,6 @@ namespace impactx::elements
          * @param idcpu particle global index
          * @param refpart reference particle (unused)
          */
-        AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
         void operator() (
             amrex::ParticleReal & AMREX_RESTRICT x,
             amrex::ParticleReal & AMREX_RESTRICT y,
@@ -210,141 +219,7 @@ namespace impactx::elements
             amrex::ParticleReal & AMREX_RESTRICT pt,
             uint64_t & AMREX_RESTRICT idcpu,
             [[maybe_unused]] RefPart const & AMREX_RESTRICT refpart
-        ) const
-        {
-            using namespace amrex::literals; // for _rt and _prt
-
-            // shift due to alignment errors of the element
-            shift_in(x, y, px, py);
-
-            // initialize output values
-            amrex::ParticleReal xout = x;
-            amrex::ParticleReal yout = y;
-            amrex::ParticleReal tout = t;
-            amrex::ParticleReal pxout = px;
-            amrex::ParticleReal pyout = py;
-            amrex::ParticleReal ptout = pt;
-            amrex::ParticleReal k_beta_ds = 0.0_prt;
-            amrex::ParticleReal cos_kds = 1.0_prt;
-            amrex::ParticleReal sin_kds = 0.0_prt;
-            amrex::ParticleReal r = 0.0_prt;
-            amrex::ParticleReal k_beta_r = 0.0_prt;
-
-            // Apply plasma wakefield effects based on model
-            switch (m_wakefield_model)
-            {
-                case WakefieldModel::none:
-                    // No wakefield effects - just drift
-                    xout = x + m_slice_ds * px;
-                    yout = y + m_slice_ds * py;
-                    tout = t + m_slice_bg * pt;
-                    break;
-
-                case WakefieldModel::simple_blowout:
-                    // Simple blowout model with focusing and acceleration
-                    k_beta_ds = m_k_beta * m_slice_ds;
-                    cos_kds = std::cos(k_beta_ds);
-                    sin_kds = std::sin(k_beta_ds);
-
-                    // Apply focusing in x and y
-                    xout = cos_kds * x + sin_kds / m_k_beta * px;
-                    pxout = -m_k_beta * sin_kds * x + cos_kds * px;
-
-                    yout = cos_kds * y + sin_kds / m_k_beta * py;
-                    pyout = -m_k_beta * sin_kds * y + cos_kds * py;
-
-                    // Longitudinal acceleration (constant field)
-                    ptout = pt;  // No relative energy change
-                    tout = t + m_slice_bg * ptout;
-                    break;
-
-                case WakefieldModel::custom_blowout:
-                    // Custom blowout model with user-defined fields
-                    k_beta_ds = m_k_beta * m_slice_ds;
-                    cos_kds = std::cos(k_beta_ds);
-                    sin_kds = std::sin(k_beta_ds);
-
-                    xout = cos_kds * x + sin_kds / m_k_beta * px;
-                    pxout = -m_k_beta * sin_kds * x + cos_kds * px;
-
-                    yout = cos_kds * y + sin_kds / m_k_beta * py;
-                    pyout = -m_k_beta * sin_kds * y + cos_kds * py;
-
-                    ptout = pt;  // No relative energy change
-                    tout = t + m_slice_bg * ptout;
-                    break;
-
-                case WakefieldModel::focusing_blowout:
-                    // Focusing blowout model - only transverse focusing
-                    k_beta_ds = m_k_beta * m_slice_ds;
-                    cos_kds = std::cos(k_beta_ds);
-                    sin_kds = std::sin(k_beta_ds);
-
-                    xout = cos_kds * x + sin_kds / m_k_beta * px;
-                    pxout = -m_k_beta * sin_kds * x + cos_kds * px;
-
-                    yout = cos_kds * y + sin_kds / m_k_beta * py;
-                    pyout = -m_k_beta * sin_kds * y + cos_kds * py;
-
-                    tout = t + m_slice_bg * pt;
-                    break;
-
-                case WakefieldModel::cold_fluid_1d:
-                    // 1D cold fluid model - longitudinal waves only
-                    k_beta_ds = m_k_beta * m_slice_ds * 0.5_prt;
-                    cos_kds = std::cos(k_beta_ds);
-                    sin_kds = std::sin(k_beta_ds);
-
-                    xout = cos_kds * x + sin_kds / (m_k_beta * 0.5_prt) * px;
-                    pxout = -m_k_beta * 0.5_prt * sin_kds * x + cos_kds * px;
-
-                    yout = cos_kds * y + sin_kds / (m_k_beta * 0.5_prt) * py;
-                    pyout = -m_k_beta * 0.5_prt * sin_kds * y + cos_kds * py;
-
-                    ptout = pt;  // No relative energy change
-                    tout = t + m_slice_bg * ptout;
-                    break;
-
-                case WakefieldModel::quasistatic_2d:
-                    // 2D quasistatic model - full 2D wakefield
-                    r = std::sqrt(x * x + y * y);
-                    k_beta_r = m_k_beta * (1.0_prt + 0.1_prt * r * m_k_p);
-                    k_beta_ds = k_beta_r * m_slice_ds;
-                    cos_kds = std::cos(k_beta_ds);
-                    sin_kds = std::sin(k_beta_ds);
-
-                    xout = cos_kds * x + sin_kds / k_beta_r * px;
-                    pxout = -k_beta_r * sin_kds * x + cos_kds * px;
-
-                    yout = cos_kds * y + sin_kds / k_beta_r * py;
-                    pyout = -k_beta_r * sin_kds * y + cos_kds * py;
-
-                    ptout = pt;  // No relative energy change
-                    tout = t + m_slice_bg * ptout;
-                    break;
-
-                default:
-                    // Fallback to drift
-                    xout = x + m_slice_ds * px;
-                    yout = y + m_slice_ds * py;
-                    tout = t + m_slice_bg * pt;
-                    break;
-            }
-
-            // assign updated values
-            x = xout;
-            y = yout;
-            t = tout;
-            px = pxout;
-            py = pyout;
-            pt = ptout;
-
-            // apply transverse aperture
-            apply_aperture(x, y, idcpu);
-
-            // undo shift due to alignment errors of the element
-            shift_out(x, y, px, py);
-        }
+        ) const;
 
         /** This pushes the reference particle.
          *
@@ -441,6 +316,49 @@ namespace impactx::elements
         amrex::ParticleReal m_betgam2; //! beta*gamma^2
         amrex::ParticleReal m_slice_bg; //! slice length / (beta*gamma^2)
 
+        // Add a shared_ptr to the 2D quasistatic solver (optional, can be shared_ptr or value)
+        mutable std::shared_ptr<Quasistatic2DWakefield> m_quasistatic2d_solver;
+
+        // Parameters for the (r, xi) grid for the 2D quasistatic solver
+        int m_nr = 64; // number of radial grid points
+        int m_nxi = 128; // number of longitudinal grid points
+        amrex::ParticleReal m_dr = 1.0e-5; // radial grid spacing [m]
+        amrex::ParticleReal m_dxi = 1.0e-5; // longitudinal grid spacing [m]
+
+    };
+
+    // Skeleton for the 2D quasistatic wakefield solver
+    class Quasistatic2DWakefield {
+    public:
+        // Grid parameters
+        int nr, nxi;
+        amrex::ParticleReal dr, dxi;
+
+        // Constructor: set up grid, plasma/beam params, etc.
+        Quasistatic2DWakefield(
+            amrex::ParticleReal plasma_density,
+            int nr_, int nxi_, amrex::ParticleReal dr_, amrex::ParticleReal dxi_
+        ) : nr(nr_), nxi(nxi_), dr(dr_), dxi(dxi_) {}
+
+        // Deposit beam charge onto (r, xi) grid
+        void deposit_charge(/* beam particles, etc. */);
+
+        // Solve bubble boundary ODE for each xi
+        void solve_bubble_boundary();
+
+        // Compute fields (E_r, E_z, B_theta) on grid
+        void compute_fields();
+
+        // Interpolate fields to particle positions
+        void interpolate_fields(/* particle positions, output fields */);
+
+        // (Optionally) Advance reference particle
+        void advance_reference(/* ref particle */);
+
+        // Grid and field storage (to be defined)
+        // std::vector<std::vector<amrex::ParticleReal>> rho, Er, Ez, Btheta, ...;
+
+        // ... other members ...
     };
 
 } // namespace impactx

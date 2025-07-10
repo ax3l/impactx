@@ -2301,7 +2301,7 @@ void init_elements(py::module& m)
         >(),
         py::arg("length"),
         py::arg("density"),
-        py::arg("wakefield_model") = PlasmaStage::WakefieldModel::simple_blowout,
+        py::arg("wakefield_model"),
         py::arg("dx") = 0,
         py::arg("dy") = 0,
         py::arg("rotation_degree") = 0,
@@ -2317,7 +2317,7 @@ void init_elements(py::module& m)
          Args:
              length: Plasma stage length in m
              density: Plasma density in m^-3
-             wakefield_model: Type of wakefield model (use PlasmaStage.WakefieldModel enum or integer: 0=none, 1=simple_blowout, 2=custom_blowout, 3=focusing_blowout, 4=cold_fluid_1d, 5=quasistatic_2d)
+             wakefield_model: Type of wakefield model (REQUIRED, use PlasmaStage.WakefieldModel enum or integer: 0=none, 1=simple_blowout, 2=custom_blowout, 3=focusing_blowout, 4=cold_fluid_1d, 5=quasistatic_2d)
              dx: Horizontal offset in m
              dy: Vertical offset in m
              rotation_degree: Rotation angle in degrees
@@ -2327,8 +2327,29 @@ void init_elements(py::module& m)
              name: Optional element name
          )doc"
     )
+    .def_property("nr",
+        [](PlasmaStage & plasma_stage) { return plasma_stage.m_nr; },
+        [](PlasmaStage & plasma_stage, int nr) { plasma_stage.m_nr = nr; },
+        "Number of radial grid points for the 2D quasistatic solver"
+    )
+    .def_property("nxi",
+        [](PlasmaStage & plasma_stage) { return plasma_stage.m_nxi; },
+        [](PlasmaStage & plasma_stage, int nxi) { plasma_stage.m_nxi = nxi; },
+        "Number of longitudinal grid points for the 2D quasistatic solver"
+    )
+    .def_property("dr",
+        [](PlasmaStage & plasma_stage) { return plasma_stage.m_dr; },
+        [](PlasmaStage & plasma_stage, amrex::ParticleReal dr) { plasma_stage.m_dr = dr; },
+        "Radial grid spacing [m] for the 2D quasistatic solver"
+    )
+    .def_property("dxi",
+        [](PlasmaStage & plasma_stage) { return plasma_stage.m_dxi; },
+        [](PlasmaStage & plasma_stage, amrex::ParticleReal dxi) { plasma_stage.m_dxi = dxi; },
+        "Longitudinal grid spacing [m] for the 2D quasistatic solver"
+    )
     ;
     register_push(py_PlasmaStage);
+    py_PlasmaStage.attr("WakefieldModel") = m.attr("WakefieldModel");
 
     // freestanding push function
     m.def("push", &Push,
@@ -2398,4 +2419,14 @@ void init_elements(py::module& m)
         py::arg("element"),
         "Insert an element every s into an element list"
     );
+
+    // PlasmaStage WakefieldModel enum registration
+    py::enum_<elements::PlasmaStage::WakefieldModel>(me, "WakefieldModel")
+        .value("none", elements::PlasmaStage::WakefieldModel::none)
+        .value("simple_blowout", elements::PlasmaStage::WakefieldModel::simple_blowout)
+        .value("custom_blowout", elements::PlasmaStage::WakefieldModel::custom_blowout)
+        .value("focusing_blowout", elements::PlasmaStage::WakefieldModel::focusing_blowout)
+        .value("cold_fluid_1d", elements::PlasmaStage::WakefieldModel::cold_fluid_1d)
+        .value("quasistatic_2d", elements::PlasmaStage::WakefieldModel::quasistatic_2d)
+        .export_values();
 }
