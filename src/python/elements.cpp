@@ -2262,6 +2262,74 @@ void init_elements(py::module& m)
      ;
      register_push(py_LinearMap);
 
+    py::class_<PlasmaStage, elements::mixin::Named, elements::mixin::Thick, elements::mixin::Alignment> py_PlasmaStage(me, "PlasmaStage");
+    py_PlasmaStage
+        .def("__repr__",
+             [](PlasmaStage const & plasma_stage) {
+                 return element_name(
+                     plasma_stage,
+                     std::make_pair("wakefield_model", plasma_stage.wakefield_model_name(plasma_stage.m_wakefield_model)),
+                     std::make_pair("density", plasma_stage.m_density),
+                     std::make_pair("length", plasma_stage.ds())
+                 );
+             }
+        )
+        .def("to_dict",
+            [](PlasmaStage const & plasma_stage) {
+                return element_dict(
+                    plasma_stage,
+                    std::make_pair("wakefield_model", plasma_stage.wakefield_model_name(plasma_stage.m_wakefield_model)),
+                    std::make_pair("density", plasma_stage.m_density),
+                    std::make_pair("length", plasma_stage.ds()),
+                    std::make_pair("slice_ds", plasma_stage.m_slice_ds),
+                    std::make_pair("betgam2", plasma_stage.m_betgam2),
+                    std::make_pair("slice_bg", plasma_stage.m_slice_bg)
+                );
+            }
+        )
+        .def(py::init<
+            amrex::ParticleReal, // length
+            amrex::ParticleReal, // density
+            PlasmaStage::WakefieldModel, // wakefield_model
+            amrex::ParticleReal, // dx
+            amrex::ParticleReal, // dy
+            amrex::ParticleReal, // rotation_degree
+            amrex::ParticleReal, // aperture_x
+            amrex::ParticleReal, // aperture_y
+            int, // nslice
+            std::optional<std::string> // name
+        >(),
+        py::arg("length"),
+        py::arg("density"),
+        py::arg("wakefield_model") = PlasmaStage::WakefieldModel::simple_blowout,
+        py::arg("dx") = 0,
+        py::arg("dy") = 0,
+        py::arg("rotation_degree") = 0,
+        py::arg("aperture_x") = 0,
+        py::arg("aperture_y") = 0,
+        py::arg("nslice") = 1,
+        py::arg("name") = py::none(),
+        R"doc(A plasma stage element that applies plasma wakefield effects
+
+         This element simulates the interaction of a particle beam with a plasma,
+         applying wakefield effects based on the specified model.
+
+         Args:
+             length: Plasma stage length in m
+             density: Plasma density in m^-3
+             wakefield_model: Type of wakefield model (use PlasmaStage.WakefieldModel enum or integer: 0=none, 1=simple_blowout, 2=custom_blowout, 3=focusing_blowout, 4=cold_fluid_1d, 5=quasistatic_2d)
+             dx: Horizontal offset in m
+             dy: Vertical offset in m
+             rotation_degree: Rotation angle in degrees
+             aperture_x: Horizontal half-aperture in m
+             aperture_y: Vertical half-aperture in m
+             nslice: Number of slices for the element
+             name: Optional element name
+         )doc"
+    )
+    ;
+    register_push(py_PlasmaStage);
+
     // freestanding push function
     m.def("push", &Push,
         py::arg("pc"), py::arg("element"), py::arg("step")=0, py::arg("period")=0,

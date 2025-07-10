@@ -1,0 +1,448 @@
+/* Copyright 2022-2023 The Regents of the University of California, through Lawrence
+ *           Berkeley National Laboratory (subject to receipt of any required
+ *           approvals from the U.S. Dept. of Energy). All rights reserved.
+ *
+ * This file is part of ImpactX.
+ *
+ * Authors: Axel Huebl
+ * License: BSD-3-Clause-LBNL
+ */
+#ifndef IMPACTX_PLASMASTAGE_H
+#define IMPACTX_PLASMASTAGE_H
+
+#include "particles/ImpactXParticleContainer.H"
+#include "mixin/alignment.H"
+#include "mixin/beamoptic.H"
+#include "mixin/thick.H"
+#include "mixin/lineartransport.H"
+#include "mixin/named.H"
+#include "mixin/nofinalize.H"
+#include "mixin/pipeaperture.H"
+
+#include <AMReX_Extension.H>
+#include <AMReX_Math.H>
+#include <AMReX_REAL.H>
+
+#include <cmath>
+#include <stdexcept>
+#include <functional>
+#include <cmath> // M_PI
+
+
+namespace impactx::elements
+{
+    struct PlasmaStage
+    : public mixin::Named,
+      public mixin::BeamOptic<PlasmaStage>,
+      public mixin::LinearTransport<PlasmaStage>,
+      public mixin::Thick,
+      public mixin::Alignment,
+      public mixin::PipeAperture,
+      public mixin::NoFinalize
+    {
+        static constexpr auto type = "PlasmaStage";
+        using PType = ImpactXParticleContainer::ParticleType;
+
+        // Plasma wakefield models
+        enum WakefieldModel
+        {
+            none,
+            simple_blowout,
+            custom_blowout,
+            focusing_blowout,
+            cold_fluid_1d,
+            quasistatic_2d
+        };
+
+        static std::string
+        wakefield_model_name (WakefieldModel const & model);
+
+        static WakefieldModel
+        wakefield_model_from_string (std::string const & model) {
+            if (model == "none") return WakefieldModel::none;
+            if (model == "simple_blowout") return WakefieldModel::simple_blowout;
+            if (model == "custom_blowout") return WakefieldModel::custom_blowout;
+            if (model == "focusing_blowout") return WakefieldModel::focusing_blowout;
+            if (model == "cold_fluid_1d") return WakefieldModel::cold_fluid_1d;
+            if (model == "quasistatic_2d") return WakefieldModel::quasistatic_2d;
+            throw std::runtime_error("Unknown wakefield_model: " + model);
+        }
+
+        /** A plasma stage element that applies plasma wakefield effects
+         *
+         * @param ds Segment length in m
+         * @param density Plasma density in m^(-3)
+         * @param wakefield_model Wakefield model to use
+         * @param dx horizontal translation error in m
+         * @param dy vertical translation error in m
+         * @param rotation_degree rotation error in the transverse plane [degrees]
+         * @param aperture_x horizontal half-aperture in m
+         * @param aperture_y vertical half-aperture in m
+         * @param nslice number of slices used for the application of space charge
+         * @param name a user defined and not necessarily unique name of the element
+         */
+        PlasmaStage (
+            amrex::ParticleReal ds,
+            amrex::ParticleReal density,
+            WakefieldModel wakefield_model = WakefieldModel::simple_blowout,
+            amrex::ParticleReal dx = 0,
+            amrex::ParticleReal dy = 0,
+            amrex::ParticleReal rotation_degree = 0,
+            amrex::ParticleReal aperture_x = 0,
+            amrex::ParticleReal aperture_y = 0,
+            int nslice = 1,
+            std::optional<std::string> name = std::nullopt
+        )
+        : Named(std::move(name)),
+          Thick(ds, nslice),
+          Alignment(dx, dy, rotation_degree),
+          PipeAperture(aperture_x, aperture_y),
+          m_wakefield_model(wakefield_model),
+          m_density(density)
+        {
+            using namespace amrex::literals; // for _rt and _prt
+
+            if (density <= 0_prt) {
+                throw std::runtime_error("PlasmaStage: density must be > 0!");
+            }
+        }
+
+        /** Push all particles */
+        using BeamOptic::operator();
+
+        /** Compute and cache the constants for the push.
+         *
+         * In particular, used to pre-compute and cache variables that are
+         * independent of the individually tracked particle.
+         *
+         * @param refpart reference particle
+         */
+        void compute_constants (RefPart const & refpart)
+        {
+            using namespace amrex::literals; // for _rt and _prt
+            using amrex::Math::powi;
+
+            Alignment::compute_constants(refpart);
+
+            // length of the current slice
+            m_slice_ds = m_ds / nslice();
+
+            // find beta*gamma^2
+            m_betgam2 = powi<2>(refpart.pt) - 1.0_prt;
+
+            m_slice_bg = m_slice_ds / m_betgam2;
+
+            // Compute plasma frequency and related constants
+            // Plasma frequency: omega_p = sqrt(n_e * e^2 / (m_e * epsilon_0))
+            // where n_e is electron density, e is elementary charge,
+            // m_e is electron mass, epsilon_0 is vacuum permittivity
+            constexpr amrex::ParticleReal e = 1.602176634e-19_prt;  // elementary charge [C]
+            constexpr amrex::ParticleReal m_e = 9.1093837015e-31_prt;  // electron mass [kg]
+            constexpr amrex::ParticleReal epsilon_0 = 8.8541878128e-12_prt;  // vacuum permittivity [F/m]
+            constexpr amrex::ParticleReal c = 299792458.0_prt;  // speed of light [m/s]
+
+            m_omega_p = std::sqrt(m_density * e * e / (m_e * epsilon_0));
+            m_k_p = m_omega_p / c;  // plasma wavenumber
+
+            // Compute constants for different wakefield models
+            switch (m_wakefield_model)
+            {
+                case WakefieldModel::simple_blowout:
+                    // Simple blowout model: focusing and acceleration
+                    m_k_beta = m_omega_p / (2.0_prt * std::sqrt(m_betgam2 + 1.0_prt));
+                    m_e_z_p = m_omega_p * m_omega_p * m_e / (2.0_prt * e);  // accelerating field
+                    m_l_p = 2.0_prt * M_PI * c / m_omega_p;  // plasma wavelength
+                    break;
+
+                case WakefieldModel::custom_blowout:
+                    // Custom blowout model: user-defined fields
+                    m_k_beta = m_omega_p / (2.0_prt * std::sqrt(m_betgam2 + 1.0_prt));
+                    m_e_z_p = m_omega_p * m_omega_p * m_e / (2.0_prt * e);
+                    m_e_z_slope = 0.0_prt;  // user can modify this
+                    break;
+
+                case WakefieldModel::focusing_blowout:
+                    // Focusing blowout model: only transverse focusing
+                    m_k_beta = m_omega_p / (2.0_prt * std::sqrt(m_betgam2 + 1.0_prt));
+                    break;
+
+                case WakefieldModel::cold_fluid_1d:
+                    // 1D cold fluid model: longitudinal waves only
+                    m_k_beta = m_omega_p / (2.0_prt * std::sqrt(m_betgam2 + 1.0_prt));
+                    m_e_z_p = m_omega_p * m_omega_p * m_e / (2.0_prt * e);
+                    break;
+
+                case WakefieldModel::quasistatic_2d:
+                    // 2D quasistatic model: full 2D wakefield
+                    m_k_beta = m_omega_p / (2.0_prt * std::sqrt(m_betgam2 + 1.0_prt));
+                    m_e_z_p = m_omega_p * m_omega_p * m_e / (2.0_prt * e);
+                    break;
+
+                case WakefieldModel::none:
+                default:
+                    // No wakefield effects
+                    m_k_beta = 0.0_prt;
+                    m_e_z_p = 0.0_prt;
+                    break;
+            }
+        }
+
+        /** This is a plasma stage functor, so that a variable of this type can be used like a plasma stage function.
+         *
+         * The @see compute_constants method must be called before pushing particles through this operator.
+         *
+         * @param x particle position in x
+         * @param y particle position in y
+         * @param t particle position in t
+         * @param px particle momentum in x
+         * @param py particle momentum in y
+         * @param pt particle momentum in t
+         * @param idcpu particle global index
+         * @param refpart reference particle (unused)
+         */
+        AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+        void operator() (
+            amrex::ParticleReal & AMREX_RESTRICT x,
+            amrex::ParticleReal & AMREX_RESTRICT y,
+            amrex::ParticleReal & AMREX_RESTRICT t,
+            amrex::ParticleReal & AMREX_RESTRICT px,
+            amrex::ParticleReal & AMREX_RESTRICT py,
+            amrex::ParticleReal & AMREX_RESTRICT pt,
+            uint64_t & AMREX_RESTRICT idcpu,
+            [[maybe_unused]] RefPart const & AMREX_RESTRICT refpart
+        ) const
+        {
+            using namespace amrex::literals; // for _rt and _prt
+
+            // shift due to alignment errors of the element
+            shift_in(x, y, px, py);
+
+            // initialize output values
+            amrex::ParticleReal xout = x;
+            amrex::ParticleReal yout = y;
+            amrex::ParticleReal tout = t;
+            amrex::ParticleReal pxout = px;
+            amrex::ParticleReal pyout = py;
+            amrex::ParticleReal ptout = pt;
+            amrex::ParticleReal k_beta_ds = 0.0_prt;
+            amrex::ParticleReal cos_kds = 1.0_prt;
+            amrex::ParticleReal sin_kds = 0.0_prt;
+            amrex::ParticleReal r = 0.0_prt;
+            amrex::ParticleReal k_beta_r = 0.0_prt;
+
+            // Apply plasma wakefield effects based on model
+            switch (m_wakefield_model)
+            {
+                case WakefieldModel::none:
+                    // No wakefield effects - just drift
+                    xout = x + m_slice_ds * px;
+                    yout = y + m_slice_ds * py;
+                    tout = t + m_slice_bg * pt;
+                    break;
+
+                case WakefieldModel::simple_blowout:
+                    // Simple blowout model with focusing and acceleration
+                    k_beta_ds = m_k_beta * m_slice_ds;
+                    cos_kds = std::cos(k_beta_ds);
+                    sin_kds = std::sin(k_beta_ds);
+
+                    // Apply focusing in x and y
+                    xout = cos_kds * x + sin_kds / m_k_beta * px;
+                    pxout = -m_k_beta * sin_kds * x + cos_kds * px;
+
+                    yout = cos_kds * y + sin_kds / m_k_beta * py;
+                    pyout = -m_k_beta * sin_kds * y + cos_kds * py;
+
+                    // Longitudinal acceleration (constant field)
+                    ptout = pt;  // No relative energy change
+                    tout = t + m_slice_bg * ptout;
+                    break;
+
+                case WakefieldModel::custom_blowout:
+                    // Custom blowout model with user-defined fields
+                    k_beta_ds = m_k_beta * m_slice_ds;
+                    cos_kds = std::cos(k_beta_ds);
+                    sin_kds = std::sin(k_beta_ds);
+
+                    xout = cos_kds * x + sin_kds / m_k_beta * px;
+                    pxout = -m_k_beta * sin_kds * x + cos_kds * px;
+
+                    yout = cos_kds * y + sin_kds / m_k_beta * py;
+                    pyout = -m_k_beta * sin_kds * y + cos_kds * py;
+
+                    ptout = pt;  // No relative energy change
+                    tout = t + m_slice_bg * ptout;
+                    break;
+
+                case WakefieldModel::focusing_blowout:
+                    // Focusing blowout model - only transverse focusing
+                    k_beta_ds = m_k_beta * m_slice_ds;
+                    cos_kds = std::cos(k_beta_ds);
+                    sin_kds = std::sin(k_beta_ds);
+
+                    xout = cos_kds * x + sin_kds / m_k_beta * px;
+                    pxout = -m_k_beta * sin_kds * x + cos_kds * px;
+
+                    yout = cos_kds * y + sin_kds / m_k_beta * py;
+                    pyout = -m_k_beta * sin_kds * y + cos_kds * py;
+
+                    tout = t + m_slice_bg * pt;
+                    break;
+
+                case WakefieldModel::cold_fluid_1d:
+                    // 1D cold fluid model - longitudinal waves only
+                    k_beta_ds = m_k_beta * m_slice_ds * 0.5_prt;
+                    cos_kds = std::cos(k_beta_ds);
+                    sin_kds = std::sin(k_beta_ds);
+
+                    xout = cos_kds * x + sin_kds / (m_k_beta * 0.5_prt) * px;
+                    pxout = -m_k_beta * 0.5_prt * sin_kds * x + cos_kds * px;
+
+                    yout = cos_kds * y + sin_kds / (m_k_beta * 0.5_prt) * py;
+                    pyout = -m_k_beta * 0.5_prt * sin_kds * y + cos_kds * py;
+
+                    ptout = pt;  // No relative energy change
+                    tout = t + m_slice_bg * ptout;
+                    break;
+
+                case WakefieldModel::quasistatic_2d:
+                    // 2D quasistatic model - full 2D wakefield
+                    r = std::sqrt(x * x + y * y);
+                    k_beta_r = m_k_beta * (1.0_prt + 0.1_prt * r * m_k_p);
+                    k_beta_ds = k_beta_r * m_slice_ds;
+                    cos_kds = std::cos(k_beta_ds);
+                    sin_kds = std::sin(k_beta_ds);
+
+                    xout = cos_kds * x + sin_kds / k_beta_r * px;
+                    pxout = -k_beta_r * sin_kds * x + cos_kds * px;
+
+                    yout = cos_kds * y + sin_kds / k_beta_r * py;
+                    pyout = -k_beta_r * sin_kds * y + cos_kds * py;
+
+                    ptout = pt;  // No relative energy change
+                    tout = t + m_slice_bg * ptout;
+                    break;
+
+                default:
+                    // Fallback to drift
+                    xout = x + m_slice_ds * px;
+                    yout = y + m_slice_ds * py;
+                    tout = t + m_slice_bg * pt;
+                    break;
+            }
+
+            // assign updated values
+            x = xout;
+            y = yout;
+            t = tout;
+            px = pxout;
+            py = pyout;
+            pt = ptout;
+
+            // apply transverse aperture
+            apply_aperture(x, y, idcpu);
+
+            // undo shift due to alignment errors of the element
+            shift_out(x, y, px, py);
+        }
+
+        /** This pushes the reference particle.
+         *
+         * @param[in,out] refpart reference particle
+         */
+        AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+        void operator() (RefPart & AMREX_RESTRICT refpart) const
+        {
+            using namespace amrex::literals; // for _rt and _prt
+            using amrex::Math::powi;
+
+            // assign input reference particle values
+            amrex::ParticleReal const x = refpart.x;
+            amrex::ParticleReal const px = refpart.px;
+            amrex::ParticleReal const y = refpart.y;
+            amrex::ParticleReal const py = refpart.py;
+            amrex::ParticleReal const z = refpart.z;
+            amrex::ParticleReal const pz = refpart.pz;
+            amrex::ParticleReal const t = refpart.t;
+            amrex::ParticleReal const pt = refpart.pt;
+            amrex::ParticleReal const s = refpart.s;
+
+            // length of the current slice
+            amrex::ParticleReal const slice_ds = m_ds / nslice();
+
+            // assign intermediate parameter
+            amrex::ParticleReal const step = slice_ds / std::sqrt(powi<2>(pt) - 1.0_prt);
+
+            // advance position and momentum (drift through plasma)
+            refpart.x = x + step * px;
+            refpart.y = y + step * py;
+            refpart.z = z + step * pz;
+
+            // Apply wakefield effects to reference particle based on model
+            amrex::ParticleReal pt_new = pt;
+            amrex::ParticleReal t_new = t;
+
+            switch (m_wakefield_model)
+            {
+                case WakefieldModel::simple_blowout:
+                case WakefieldModel::custom_blowout:
+                case WakefieldModel::cold_fluid_1d:
+                case WakefieldModel::quasistatic_2d: {
+                    // Apply longitudinal acceleration
+                    amrex::ParticleReal const E_z = m_e_z_p * slice_ds;
+                    pt_new = pt + E_z;
+                    t_new = t - step * pt_new;
+                    break;
+                }
+
+                case WakefieldModel::focusing_blowout:
+                    // Only transverse focusing, no longitudinal acceleration
+                    t_new = t - step * pt;
+                    break;
+
+                case WakefieldModel::none:
+                default:
+                    // No wakefield effects
+                    t_new = t - step * pt;
+                    break;
+            }
+
+            refpart.t = t_new;
+            refpart.pt = pt_new;
+
+            // advance integrated path length
+            refpart.s = s + slice_ds;
+        }
+
+        /** This pushes the covariance matrix. */
+        using LinearTransport::operator();
+
+        /** This function returns the linear transport map.
+         *
+         * @param[in] refpart reference particle
+         * @returns 6x6 transport matrix
+         */
+        AMREX_GPU_HOST AMREX_FORCE_INLINE
+        Map6x6
+        transport_map (RefPart const & AMREX_RESTRICT /*refpart*/) const
+        {
+            throw std::runtime_error("PlasmaStage does not implement a linear transport map.");
+        }
+
+        WakefieldModel m_wakefield_model; //! wakefield model type
+        amrex::ParticleReal m_density; //! plasma density [m^(-3)]
+        amrex::ParticleReal m_omega_p; //! plasma frequency [rad/s]
+        amrex::ParticleReal m_k_p; //! plasma wavenumber [m^(-1)]
+        amrex::ParticleReal m_k_beta; //! betatron wavenumber [m^(-1)]
+        amrex::ParticleReal m_e_z_p; //! longitudinal electric field [V/m]
+        amrex::ParticleReal m_e_z_slope; //! longitudinal field slope [V/m^2]
+        amrex::ParticleReal m_l_p; //! plasma wavelength [m]
+        amrex::ParticleReal m_slice_ds; //! slice length [m]
+        amrex::ParticleReal m_betgam2; //! beta*gamma^2
+        amrex::ParticleReal m_slice_bg; //! slice length / (beta*gamma^2)
+
+    };
+
+} // namespace impactx
+
+#endif // IMPACTX_PLASMASTAGE_H

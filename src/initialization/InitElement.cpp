@@ -607,6 +607,45 @@ element_name) );
             }
 
             m_lattice.emplace_back(LinearMap(transport_map, ds, a["dx"], a["dy"], a["rotation_degree"]) );
+        } else if (element_type == "plasma_stage")
+        {
+            auto const [ds, nslice] = detail::query_ds(pp_element, nslice_default);
+            auto a = detail::query_alignment(pp_element);
+            auto b = detail::query_aperture(pp_element);
+
+            amrex::ParticleReal density;
+            std::string wakefield_model = "none";
+            pp_element.getWithParser("density", density);
+            pp_element.queryAdd("wakefield_model", wakefield_model);
+
+            // Validate wakefield model
+            AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+                wakefield_model == "none" || wakefield_model == "simple_blowout" ||
+                wakefield_model == "custom_blowout" || wakefield_model == "focusing_blowout" ||
+                wakefield_model == "cold_fluid_1d" || wakefield_model == "quasistatic_2d",
+                element_name + ".wakefield_model must be one of: none, simple_blowout, custom_blowout, focusing_blowout, cold_fluid_1d, quasistatic_2d"
+            );
+
+            // Convert string to enum
+            PlasmaStage::WakefieldModel model_enum;
+            if (wakefield_model == "none") {
+                model_enum = PlasmaStage::WakefieldModel::none;
+            } else if (wakefield_model == "simple_blowout") {
+                model_enum = PlasmaStage::WakefieldModel::simple_blowout;
+            } else if (wakefield_model == "custom_blowout") {
+                model_enum = PlasmaStage::WakefieldModel::custom_blowout;
+            } else if (wakefield_model == "focusing_blowout") {
+                model_enum = PlasmaStage::WakefieldModel::focusing_blowout;
+            } else if (wakefield_model == "cold_fluid_1d") {
+                model_enum = PlasmaStage::WakefieldModel::cold_fluid_1d;
+            } else if (wakefield_model == "quasistatic_2d") {
+                model_enum = PlasmaStage::WakefieldModel::quasistatic_2d;
+            } else {
+                // This should never happen due to the validation above
+                model_enum = PlasmaStage::WakefieldModel::none;
+            }
+
+            m_lattice.emplace_back( PlasmaStage(ds, density, model_enum, a["dx"], a["dy"], a["rotation_degree"], b["aperture_x"], b["aperture_y"], nslice, element_name) );
         } else {
             amrex::Abort("Unknown type for lattice element " + element_name + ": " + element_type);
         }

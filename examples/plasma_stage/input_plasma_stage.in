@@ -1,0 +1,60 @@
+# Plasma Stage Example
+# This example demonstrates the new PlasmaStage element in ImpactX
+# Based on Wake-T plasma stage functionality
+
+# Reference particle
+beam.energy = 100.0  # MeV
+beam.particle = electron
+beam.charge = 1.0e-12  # C
+beam.npart = 10000
+
+# Beam distribution
+beam.distribution = gaussian
+beam.sigmaX = 1.0e-6  # m
+beam.sigmaY = 1.0e-6  # m
+beam.sigmaT = 3.0e-15  # s
+beam.sigmaPx = 0.1  # normalized
+beam.sigmaPy = 0.1  # normalized
+beam.sigmaPt = 0.001  # normalized
+
+# Lattice - demonstrate different wakefield models
+lattice.elements = plasma_simple, plasma_custom, plasma_focusing, plasma_cold_fluid, plasma_quasistatic
+
+# Simple blowout model (focusing + acceleration)
+plasma_simple.type = PlasmaStage
+plasma_simple.ds = 0.005  # m (5 cm)
+plasma_simple.density = 1.0e23  # m^(-3)
+plasma_simple.wakefield_model = simple_blowout
+plasma_simple.nslice = 5
+
+# Custom blowout model (user-defined fields)
+plasma_custom.type = PlasmaStage
+plasma_custom.ds = 0.005  # m (5 cm)
+plasma_custom.density = 1.0e23  # m^(-3)
+plasma_custom.wakefield_model = custom_blowout
+plasma_custom.nslice = 5
+
+# Focusing blowout model (transverse focusing only)
+plasma_focusing.type = PlasmaStage
+plasma_focusing.ds = 0.005  # m (5 cm)
+plasma_focusing.density = 1.0e23  # m^(-3)
+plasma_focusing.wakefield_model = focusing_blowout
+plasma_focusing.nslice = 5
+
+# Cold fluid 1D model (longitudinal waves)
+plasma_cold_fluid.type = PlasmaStage
+plasma_cold_fluid.ds = 0.005  # m (5 cm)
+plasma_cold_fluid.density = 1.0e23  # m^(-3)
+plasma_cold_fluid.wakefield_model = cold_fluid_1d
+plasma_cold_fluid.nslice = 5
+
+# Quasistatic 2D model (full 2D wakefield)
+plasma_quasistatic.type = PlasmaStage
+plasma_quasistatic.ds = 0.005  # m (5 cm)
+plasma_quasistatic.density = 1.0e23  # m^(-3)
+plasma_quasistatic.wakefield_model = quasistatic_2d
+plasma_quasistatic.nslice = 5
+
+# Diagnostics
+diag.beam_monitor = true
+diag.slice_step_diagnostics = true
