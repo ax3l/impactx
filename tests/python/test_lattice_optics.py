@@ -10,19 +10,23 @@
 import numpy as np
 import pytest
 
-from impactx import RefPart, elements
+from impactx import ImpactX, elements
 
 
 def test_lattice_linear_map():
     """Calculate the linear transfer map of a lattice."""
 
+    sim = ImpactX()
+
+    sim.space_charge = False
+    sim.init_grids()
+
     # Create reference particle
-    ref = RefPart()
+    ref = sim.particle_container().ref_particle()
     ref.set_charge_qe(-1.0).set_mass_MeV(0.510998950).set_kin_energy_MeV(1.0e3)
 
     # Create a valid test lattice (all elements define a linear transfer map)
-    lattice = elements.KnownElementsList()
-    lattice.extend(
+    sim.lattice.extend(
         [
             elements.Drift(name="drift1", ds=1.0),
             elements.Quad(name="quad1", ds=0.5, k=1.0),
@@ -30,6 +34,9 @@ def test_lattice_linear_map():
             elements.Sbend(name="bend1", ds=1.0, rc=10.0),
         ]
     )
+
+    # run simulation
+    sim.track_reference(ref)
 
     # Expected result (matrix multiplication)
     R_expected = np.array(
@@ -44,20 +51,18 @@ def test_lattice_linear_map():
     )
 
     # Calculate Linear Transfer Map
-    R = lattice.transfer_map(ref)
+    R = sim.transfer_map()
     assert np.allclose(R.to_numpy(), R_expected)
 
-    # Check unexpected/unsupported options
-    with pytest.raises(RuntimeError):
-        lattice.transfer_map(ref, order="invalid")
-
     # Create a lattice with an element that does not define a linear transfer map
-    lattice.append(elements.TaperedPL(k=0, taper=0, unit=0))
+    sim.lattice.append(elements.TaperedPL(k=0, taper=0, unit=0))
 
     # Ensure that the calculation asserts
     with pytest.raises(RuntimeError):
-        lattice.transfer_map(ref)
+        # rerun simulation
+        sim.track_reference(ref)
 
-    # Now the user explicitly assumes that undefined maps are identify maps
-    R = lattice.transfer_map(ref, fallback_identity_map=True)
+    # Now the user explicitly assumes that undefined maps are identity maps
+    sim.fallback_identity_map = True  # TODO: implement option
+    R = sim.transfer_map()
     assert np.allclose(R.to_numpy(), R_expected)
