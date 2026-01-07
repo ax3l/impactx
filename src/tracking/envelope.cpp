@@ -75,6 +75,7 @@ namespace impactx
         if (verbose > 0) {
             amrex::Print() << " Diagnostics: " << diag_enable << "\n";
         }
+        bool calculate_transfer_map = true;  // TODO expose to user
 
         if (diag_enable)
         {
@@ -192,6 +193,12 @@ namespace impactx
 
                     }, element_variant);
 
+                    // diagnostics: update the transfer map
+                    if (calculate_transfer_map)
+                    {
+                        update_transfer_map(ref, element_variant);
+                    }
+
                     // just prints an empty newline at the end of the slice_step
                     if (verbose > 0)
                     {
@@ -202,7 +209,6 @@ namespace impactx
                     bool slice_step_diagnostics = false;
                     pp_diag.queryAdd("slice_step_diagnostics", slice_step_diagnostics);
 
-
                     if (diag_enable && slice_step_diagnostics)
                     {
                         // print slice step reference particle to file
@@ -210,7 +216,6 @@ namespace impactx
 
                         // print slice step reduced beam characteristics to file
                         diagnostics::DiagnosticOutput(cm, ref, "diags/reduced_beam_characteristics", step, true);
-
                     }
 
                     // inputs: unused parameters (e.g. typos) check after step 1 has finished

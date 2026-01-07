@@ -56,6 +56,7 @@ namespace impactx
         {
             amrex::Print() << " Diagnostics: " << diag_enable << "\n";
         }
+        bool calculate_transfer_map = true;  // TODO expose to user
 
         if (diag_enable)
         {
@@ -128,6 +129,12 @@ namespace impactx
 
                     // push the reference particle with external maps
                     push(ref, element_variant);
+
+                    // diagnostics: update the transfer map
+                    if (calculate_transfer_map)
+                    {
+                        update_transfer_map(ref, element_variant);
+                    }
 
                     // just prints an empty newline at the end of the slice_step
                     if (verbose > 0)

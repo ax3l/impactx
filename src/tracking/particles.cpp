@@ -62,6 +62,7 @@ namespace impactx
         if (verbose > 0) {
             amrex::Print() << " Diagnostics: " << diag_enable << "\n";
         }
+        bool calculate_transfer_map = true;  // TODO expose to user
 
         pc->reset_beam_moments_history();
 
@@ -146,6 +147,11 @@ namespace impactx
 
                     // push all particles with external maps
                     push(*amr_data->track_particles.m_particle_container, element_variant, step, period);
+
+                    // diagnostics: update the transfer map
+                    if (calculate_transfer_map) {
+                        update_transfer_map(amr_data->track_particles.m_particle_container->GetRefParticle(), element_variant);
+                    }
 
                     // move "lost" particles to another particle container
                     collect_lost_particles(*amr_data->track_particles.m_particle_container);

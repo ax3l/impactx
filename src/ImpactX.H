@@ -12,6 +12,7 @@
 
 #include "elements/All.H"
 #include "initialization/AmrCoreData.H"
+#include "particles/CovarianceMatrix.H"
 #include "particles/distribution/All.H"
 #include "tracking/TrackingState.H"
 
@@ -174,6 +175,16 @@ namespace impactx
         /** A few states during tracking loops, useful to know in hooks (Python callback functions).
          */
         TrackingState m_tracking_state;
+
+        /** Update the transfer map diagnostics */
+        void
+        update_transfer_map (
+            RefPart & ref,
+            elements::KnownElements const & element_variant
+        );
+
+        /** The linear transfer map (in situ calculated from the reference particle) **/
+        Map6x6 m_linear_transfer_map = Map6x6::Identity();
 
       private:
         /** Keeps track if init_grids was called.
