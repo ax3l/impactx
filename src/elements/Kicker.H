@@ -11,12 +11,12 @@
 #define IMPACTX_KICKER_H
 
 #include "particles/ImpactXParticleContainer.H"
+#include "Element.H"
 #include "mixin/alignment.H"
 #include "mixin/beamoptic.H"
 #include "mixin/thin.H"
 #include "mixin/lineartransport.H"
 #include "mixin/spintransport.H"
-#include "mixin/named.H"
 #include "mixin/nofinalize.H"
 
 #include <AMReX_Enum.H>
@@ -30,10 +30,9 @@
 
 namespace impactx::elements
 {
-    struct Kicker
-    : public mixin::Named,
-      public mixin::BeamOptic<Kicker>,
-      public mixin::LinearTransport<Kicker>,
+    struct KickerPhysics
+    : public mixin::BeamOptic<KickerPhysics>,
+      public mixin::LinearTransport<KickerPhysics>,
       public mixin::Thin,
       public mixin::Alignment,
       public mixin::SpinTransport,
@@ -73,19 +72,16 @@ namespace impactx::elements
          * @param dx horizontal translation error in m
          * @param dy vertical translation error in m
          * @param rotation_degree rotation error in the transverse plane [degrees]
-         * @param name a user defined and not necessarily unique name of the element
          */
-        Kicker (
+        KickerPhysics (
             amrex::ParticleReal xkick,
             amrex::ParticleReal ykick,
             UnitSystem unit = DEFAULT_unit,
             amrex::ParticleReal dx = DEFAULT_dx,
             amrex::ParticleReal dy = DEFAULT_dy,
-            amrex::ParticleReal rotation_degree = DEFAULT_rotation_degree,
-            std::optional<std::string> name = DEFAULT_name
+            amrex::ParticleReal rotation_degree = DEFAULT_rotation_degree
         )
-        : Named(std::move(name)),
-          Alignment(dx, dy, rotation_degree),
+        : Alignment(dx, dy, rotation_degree),
           m_xkick(xkick), m_ykick(ykick), m_unit(unit)
         {
         }
@@ -294,8 +290,11 @@ namespace impactx::elements
         amrex::ParticleReal m_beta;
     };
 
+    /** Kicker: physics plus common host-only metadata */
+    using Kicker = Element<KickerPhysics>;
+
 } // namespace impactx
 
-IMPACTX_PUSH_EXTERN_TEMPLATE(impactx::elements::Kicker)
+IMPACTX_PUSH_EXTERN_TEMPLATE(impactx::elements::KickerPhysics)
 
 #endif // IMPACTX_KICKER_H
