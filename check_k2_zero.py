@@ -10,8 +10,6 @@
 from impactx import my_run
 
 verbose = False
-# mode = "forward"
-mode = "backward"
 inputs_file_beam = "examples/fodo_space_charge/input_fodo_envelope_sc.in"
 
 
