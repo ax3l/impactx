@@ -163,9 +163,9 @@ namespace impactx::particles::wakefields
                 std::ofstream outfile("convolved_wakefield.txt");
                 for (amrex::Real const val : h_wakefield) {
                     std::cout << val << " ";
-                    outfile << val << std::endl;
+                    outfile << val << "\n";
                 }
-                std::cout << std::endl;
+                std::cout << "\n";
                 outfile.close();
             }
 
