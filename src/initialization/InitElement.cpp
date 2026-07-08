@@ -575,6 +575,10 @@ element_name) );
             pp_element.queryAdd("encoding", openpmd_encoding);
             int period_sample_intervals = BeamMonitor::DEFAULT_period_sample_intervals;
             pp_element.queryAddWithParser("period_sample_intervals", period_sample_intervals);
+            bool particles = BeamMonitor::DEFAULT_particles;
+            pp_element.queryAdd("particles", particles);
+            bool beam_moments = BeamMonitor::DEFAULT_beam_moments;
+            pp_element.queryAdd("beam_moments", beam_moments);
 
             // optional: add and calculate additional particle properties
             // property: nonlinear lens invariants
@@ -582,6 +586,9 @@ element_name) );
             pp_element.queryAdd("nonlinear_lens_invariants", add_nll_invariants);
             if (add_nll_invariants)
             {
+                AMREX_ALWAYS_ASSERT_WITH_MESSAGE(particles,
+                    element_name + ".nonlinear_lens_invariants=true requires " + element_name + ".particles=true");
+
                 amrex::ParticleReal alpha = 0.0;
                 pp_element.queryAddWithParser("alpha", alpha);
                 amrex::ParticleReal beta = 1.0;
@@ -592,7 +599,7 @@ element_name) );
                 pp_element.queryAddWithParser("cn", cn);
             }
 
-            m_lattice.emplace_back(BeamMonitor(openpmd_name, openpmd_backend, openpmd_encoding, period_sample_intervals));
+            m_lattice.emplace_back(BeamMonitor(openpmd_name, openpmd_backend, openpmd_encoding, period_sample_intervals, particles, beam_moments));
         } else if (element_type == "source")
         {
             std::string distribution, openpmd_path;
