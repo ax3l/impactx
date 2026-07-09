@@ -93,7 +93,7 @@ Terms
 * **tracking modes:** ImpactX can :ref:`track <usage_run-tracking-mode>` individual particles (full dynamics), the beam envelope (linearized optics), or only the reference orbit (for early design)
 * **transfer map:** the map that advances the phase space coordinates through a lattice element; to lowest order a 6x6 matrix (linear transfer map), which users can also supply directly (``linear_map``)
 * **Twiss parameters:** the Courant-Snyder parameters :math:`\alpha`, :math:`\beta` and :math:`\gamma` describing the :ref:`phase space ellipse <theory-collective-beam-distribution-input>` of the beam, related by :math:`\gamma\beta - \alpha^2 = 1`
-* **wakefield:** a collective self-field that acts back on the beam, e.g., the CSR wakefield generated in bending elements
+* **wakefield:** a collective self-field (other than space charge) that acts back on the beam, e.g., the CSR wakefield generated in bending elements
 * **WarpX:** the `electromagnetic and electrostatic particle-in-cell code <https://warpx.readthedocs.io>`__ of BLAST, e.g., used to model source, injector, or plasma-based accelerator elements. ImpactX shares the ABLASTR library with WarpX and can exchange particle beams with WarpX through openPMD or Python
 
 For plasma, laser and fusion related terminology, please also see the `WarpX glossary <https://warpx.readthedocs.io/en/latest/glossary.html>`__.
