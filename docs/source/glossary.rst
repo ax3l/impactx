@@ -61,7 +61,7 @@ Terms
 * **aperture:** a thin collimator element applying a transverse boundary to the beam; particles outside are lost (see *scraping*)
 * **beam monitor:** a zero-length lattice element that writes the particle beam to :ref:`openPMD output <dataanalysis-monitor>` whenever the beam passes it
 * **bunch:** a longitudinally confined group of particles, also referred to as beam; the particle ensemble that ImpactX tracks through the lattice
-* **chromatic effects:** the dependence of the particle optics on the particle energy; chromatic element models retain the exact nonlinear dependence on the energy variable :math:`p_t` (see :ref:`assumptions <theory-assumptions>`)
+* **chromatic effects:** the dependence of the transverse focusing optics on the particle energy. Chromatic element models retain the exact nonlinear dependence on the energy variable :math:`p_t` (see :ref:`assumptions <theory-assumptions>`)
 * **collective effects:** effects that depend on the particle beam as a whole, arising from the interaction of the beam particles with each other through their self-fields and radiation, in contrast to single-particle optics in external fields. ImpactX :ref:`applies <running-cpp-parameters-collective>` collective effects such as *space charge* and the CSR *wakefield* between the *slices* of lattice elements
 * **covariance matrix:** the 6x6 matrix :math:`\Sigma_{ij}=\langle\zeta_i\zeta_j\rangle` of :ref:`second moments of the phase space coordinates <theory-collective-beam-distribution-input>`; used to characterize the initial beam distribution and as the tracked state in *envelope tracking*
 * **dashboard:** the :ref:`browser-based graphical user interface <usage-dashboard>` of ImpactX, which can also run in Jupyter notebooks
