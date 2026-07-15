@@ -10,6 +10,7 @@
 
 #include "ReducedBeamCharacteristics.H"
 
+#include "BeamMomentsSelection.H"
 #include "particles/ImpactXParticleContainer.H"
 #include "particles/ReferenceParticle.H"
 #include "particles/CovarianceMatrix.H"
@@ -26,8 +27,12 @@
 #include <AMReX_SmallMatrix.H>          // for SmallMatrix
 #include <AMReX_TypeList.H>             // for TypeMultiplier
 
+#include <algorithm>
 #include <array>
 #include <limits>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 
@@ -61,6 +66,113 @@ namespace
         amrex::ParticleReal charge;
     };
 
+    //! minimal requirement to compute an output key: the smallest profile plus
+    //! whether the spin / min-max / eigenemittance reductions are also needed
+    struct KeyReq { MomentsProfile profile; bool spin; bool minmax; bool eigen; };
+
+    /** Canonicalize a (possibly deprecated) output name. Deprecated aliases
+     *  (e.g. x_mean, sig_x, pt_min) map to their canonical spelling; any other
+     *  name is returned unchanged.
+     */
+    std::string canonicalize (std::string const & key)
+    {
+        static const std::unordered_map<std::string, std::string> aliases = {
+            {"x_mean", "mean_x"}, {"y_mean", "mean_y"}, {"t_mean", "mean_t"},
+            {"px_mean", "mean_px"}, {"py_mean", "mean_py"}, {"pt_mean", "mean_pt"},
+            {"x_min", "min_x"}, {"y_min", "min_y"}, {"t_min", "min_t"},
+            {"px_min", "min_px"}, {"py_min", "min_py"}, {"pt_min", "min_pt"},
+            {"x_max", "max_x"}, {"y_max", "max_y"}, {"t_max", "max_t"},
+            {"px_max", "max_px"}, {"py_max", "max_py"}, {"pt_max", "max_pt"},
+            {"sig_x", "sigma_x"}, {"sig_y", "sigma_y"}, {"sig_t", "sigma_t"},
+            {"sig_px", "sigma_px"}, {"sig_py", "sigma_py"}, {"sig_pt", "sigma_pt"}
+        };
+        auto const it = aliases.find(key);
+        return (it == aliases.end()) ? key : it->second;
+    }
+
+    /** Requirement to compute a canonical output key. Throws std::runtime_error
+     *  for an unknown key (already canonicalized).
+     */
+    KeyReq key_requirement (std::string const & key)
+    {
+        using P = MomentsProfile;
+        static const std::unordered_map<std::string, KeyReq> table = {
+            // Positions: means/sigmas of x, y, t and the beam charge
+            {"mean_x",   {P::Positions, false, false, false}},
+            {"mean_y",   {P::Positions, false, false, false}},
+            {"mean_t",   {P::Positions, false, false, false}},
+            {"sigma_x",  {P::Positions, false, false, false}},
+            {"sigma_y",  {P::Positions, false, false, false}},
+            {"sigma_t",  {P::Positions, false, false, false}},
+            {"charge_C", {P::Positions, false, false, false}},
+            // Sizes: means/sigmas of px, py, pt
+            {"mean_px",  {P::Sizes, false, false, false}},
+            {"mean_py",  {P::Sizes, false, false, false}},
+            {"mean_pt",  {P::Sizes, false, false, false}},
+            {"sigma_px", {P::Sizes, false, false, false}},
+            {"sigma_py", {P::Sizes, false, false, false}},
+            {"sigma_pt", {P::Sizes, false, false, false}},
+            // per-coordinate min/max (min/max of momenta needs the momenta loaded)
+            {"min_x",  {P::Positions, false, true, false}},
+            {"max_x",  {P::Positions, false, true, false}},
+            {"min_y",  {P::Positions, false, true, false}},
+            {"max_y",  {P::Positions, false, true, false}},
+            {"min_t",  {P::Positions, false, true, false}},
+            {"max_t",  {P::Positions, false, true, false}},
+            {"min_px", {P::Sizes, false, true, false}},
+            {"max_px", {P::Sizes, false, true, false}},
+            {"min_py", {P::Sizes, false, true, false}},
+            {"max_py", {P::Sizes, false, true, false}},
+            {"min_pt", {P::Sizes, false, true, false}},
+            {"max_pt", {P::Sizes, false, true, false}},
+            // Twiss: emittances, dispersion and (dispersion-corrected) Twiss
+            {"emittance_x",   {P::Twiss, false, false, false}},
+            {"emittance_y",   {P::Twiss, false, false, false}},
+            {"emittance_t",   {P::Twiss, false, false, false}},
+            {"emittance_xn",  {P::Twiss, false, false, false}},
+            {"emittance_yn",  {P::Twiss, false, false, false}},
+            {"emittance_tn",  {P::Twiss, false, false, false}},
+            {"alpha_x",       {P::Twiss, false, false, false}},
+            {"alpha_y",       {P::Twiss, false, false, false}},
+            {"alpha_t",       {P::Twiss, false, false, false}},
+            {"beta_x",        {P::Twiss, false, false, false}},
+            {"beta_y",        {P::Twiss, false, false, false}},
+            {"beta_t",        {P::Twiss, false, false, false}},
+            {"dispersion_x",  {P::Twiss, false, false, false}},
+            {"dispersion_px", {P::Twiss, false, false, false}},
+            {"dispersion_y",  {P::Twiss, false, false, false}},
+            {"dispersion_py", {P::Twiss, false, false, false}},
+            // eigenemittances need the full 6x6 covariance
+            {"emittance_1", {P::Full, false, false, true}},
+            {"emittance_2", {P::Full, false, false, true}},
+            {"emittance_3", {P::Full, false, false, true}},
+            // spin first and second moments
+            {"mean_sx",  {P::Positions, true, false, false}},
+            {"mean_sy",  {P::Positions, true, false, false}},
+            {"mean_sz",  {P::Positions, true, false, false}},
+            {"sigma_sx", {P::Positions, true, false, false}},
+            {"sigma_sy", {P::Positions, true, false, false}},
+            {"sigma_sz", {P::Positions, true, false, false}}
+        };
+        auto const it = table.find(key);
+        if (it == table.end())
+        {
+            throw std::runtime_error(
+                "reduced beam characteristics: unknown moment name '" + key + "'");
+        }
+        return it->second;
+    }
+
+    /** Whether a key's requirement is satisfied by a selection. */
+    bool key_covered (std::string const & key, MomentsSelection const & sel)
+    {
+        KeyReq const req = key_requirement(canonicalize(key));
+        return static_cast<int>(req.profile) <= static_cast<int>(sel.profile)
+            && (!req.spin   || sel.spin)
+            && (!req.minmax || sel.minmax)
+            && (!req.eigen  || sel.eigen);
+    }
+
     /** Recover the derived beam characteristics from the (central) moments and
      *  assemble the output map. The arithmetic below is unchanged from the
      *  original inlined recovery; it now lives in exactly one place.
@@ -68,7 +180,8 @@ namespace
     std::unordered_map<std::string, amrex::ParticleReal>
     derive_and_assemble (RawMoments const & m,
                          amrex::ParticleReal const bg,
-                         amrex::ParticleReal const bg2)
+                         amrex::ParticleReal const bg2,
+                         MomentsSelection const & sel)
     {
         using namespace amrex::literals; // for _prt
 
@@ -167,9 +280,7 @@ namespace
         amrex::ParticleReal emittance_tn = emittance_t * bg;
 
         // Determine whether to calculate eigenemittances, and initialize
-        amrex::ParmParse pp_diag("diag");
-        bool compute_eigenemittances = false;
-        pp_diag.queryAdd("eigenemittances", compute_eigenemittances);
+        bool const compute_eigenemittances = sel.eigen;
         amrex::ParticleReal emittance_1 = emittance_xn;
         amrex::ParticleReal emittance_2 = emittance_yn;
         amrex::ParticleReal emittance_3 = emittance_tn;
@@ -300,6 +411,29 @@ namespace
         data["sigma_sy"] = sigma_sy;
         data["sigma_sz"] = sigma_sz;
 
+        // Filter to the requested selection: a non-empty key list keeps exactly
+        // those keys (honoring the requested spelling); an empty list keeps every
+        // key the profile and flags cover (used by the "all" and default
+        // selections).
+        if (sel.keys.empty())
+        {
+            for (auto it = data.begin(); it != data.end(); )
+            {
+                if (key_covered(it->first, sel)) { ++it; }
+                else { it = data.erase(it); }
+            }
+        }
+        else
+        {
+            std::unordered_map<std::string, amrex::ParticleReal> filtered;
+            for (auto const & k : sel.keys)
+            {
+                auto const it = data.find(k);
+                if (it != data.end()) { filtered.emplace(k, it->second); }
+            }
+            data = std::move(filtered);
+        }
+
         return data;
     }
 
@@ -315,9 +449,8 @@ namespace
     //! multiplicative-identity placeholder used by the generic slot formula
     enum class Coord : int { x = 0, y, t, px, py, pt, sx, sy, sz, none };
 
-    //! reduction profiles, ordered by increasing coverage; each is a superset of
-    //! the previous: Positions < Sizes < Twiss < Full
-    enum class Profile : int { Positions = 0, Sizes, Twiss, Full };
+    // (MomentsProfile, the reduction-profile enum, is declared in
+    //  BeamMomentsSelection.H so it can be shared with MomentsSelection.)
 
     //! one reduced (weighted) sum slot: sum over particles of w * dev(a) * dev(b),
     //! with dev(u) = u - shift_u and dev(none) = 1. Hence {none,none} = Sum(w),
@@ -340,7 +473,7 @@ namespace
     /** Compile-time description of a reduction profile: the ordered list of
      *  weighted-sum slots and the coordinates to reduce min/max over.
      */
-    constexpr ProfileDesc make_desc (Profile const profile, bool const spin, bool const minmax)
+    constexpr ProfileDesc make_desc (MomentsProfile const profile, bool const spin, bool const minmax)
     {
         ProfileDesc d {};
         auto add_sum = [&d] (Coord const a, Coord const b)
@@ -358,7 +491,7 @@ namespace
         for (Coord const c : pos) { add_sum(c, c); }
 
         // momenta (Sizes and up)
-        if (profile >= Profile::Sizes)
+        if (profile >= MomentsProfile::Sizes)
         {
             Coord const mom[3] = {Coord::px, Coord::py, Coord::pt};
             for (Coord const c : mom) { add_sum(c, Coord::none); }
@@ -366,7 +499,7 @@ namespace
         }
 
         // correlations for emittance, dispersion and (dispersion-corrected) Twiss
-        if (profile >= Profile::Twiss)
+        if (profile >= MomentsProfile::Twiss)
         {
             // same-plane
             add_sum(Coord::x, Coord::px);
@@ -380,7 +513,7 @@ namespace
         }
 
         // cross-plane correlations (only eigenemittances consume these)
-        if (profile >= Profile::Full)
+        if (profile >= MomentsProfile::Full)
         {
             add_sum(Coord::x, Coord::y);
             add_sum(Coord::x, Coord::py);
@@ -409,7 +542,7 @@ namespace
             d.minmax[d.n_minmax++] = Coord::x;
             d.minmax[d.n_minmax++] = Coord::y;
             d.minmax[d.n_minmax++] = Coord::t;
-            if (profile >= Profile::Sizes)
+            if (profile >= MomentsProfile::Sizes)
             {
                 d.minmax[d.n_minmax++] = Coord::px;
                 d.minmax[d.n_minmax++] = Coord::py;
@@ -460,6 +593,27 @@ namespace
         }
     }
 
+    /** Fill the weighted power-sum slots (the first desc.n_sums tuple entries)
+     *  for a profile. Shared by the with- and without-min/max reduction paths so
+     *  the generic slot formula w*dev(a)*dev(b) lives in exactly one place.
+     */
+    template <MomentsProfile P, bool Spin, typename TupleT, typename PType>
+    AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+    void fill_sum_slots (
+        TupleT & out,
+        PType const & p,
+        amrex::GpuArray<amrex::ParticleReal, 9> const & shift)
+    {
+        static constexpr ProfileDesc desc = make_desc(P, Spin, false);
+        amrex::ParticleReal const p_w = p.rdata(RealSoA::w);
+        amrex::constexpr_for<0, desc.n_sums>([&] (auto i)
+        {
+            constexpr SumSpec s = desc.sums[i];
+            amrex::get<i>(out) =
+                deviation<s.a>(p, shift) * deviation<s.b>(p, shift) * p_w;
+        });
+    }
+
     /** Reduce a single pass over the particles for the given profile and recover
      *  the central moments into a RawMoments. The full profile
      *  (Profile::Full, spin, minmax) reproduces the previous hand-written
@@ -467,7 +621,7 @@ namespace
      *  multiplication order, and the parallel-axis recovery keeps the same order
      *  of operations, keyed off the SumSpec instead of hard-coded indices.
      */
-    template <Profile P, bool Spin, bool MinMax>
+    template <MomentsProfile P, bool Spin, bool MinMax>
     RawMoments reduce_and_recover (
         ImpactXParticleContainer const & pc,
         std::array<amrex::ParticleReal, 9> const & shift,
@@ -480,32 +634,31 @@ namespace
         static constexpr int n_sum = desc.n_sums;
         static constexpr int n_mm  = desc.n_minmax;
 
-        amrex::TypeMultiplier<amrex::ReduceOps,
-            amrex::ReduceOpSum[n_sum],
-            amrex::ReduceOpMin[n_mm],
-            amrex::ReduceOpMax[n_mm]
-        > reduce_ops;
-        using ReducedDataT = amrex::TypeMultiplier<amrex::ReduceData,
-            amrex::ParticleReal[n_sum + 2 * n_mm]>;
-
         amrex::GpuArray<amrex::ParticleReal, 9> shift_d {};
         for (int i = 0; i < 9; ++i) { shift_d[i] = shift[i]; }
 
-        auto r = amrex::ParticleReduce<ReducedDataT>(
-            pc,
-            [=] AMREX_GPU_DEVICE (PType const & p) noexcept -> typename ReducedDataT::Type
-            {
-                amrex::ParticleReal const p_w = p.rdata(RealSoA::w);
+        std::array<amrex::ParticleReal, n_sum> values_sum {};
+        [[maybe_unused]] std::array<amrex::ParticleReal, (MinMax ? max_minmax : 1)> values_min {};
+        [[maybe_unused]] std::array<amrex::ParticleReal, (MinMax ? max_minmax : 1)> values_max {};
 
-                typename ReducedDataT::Type out;
-                amrex::constexpr_for<0, n_sum>([&] (auto i)
+        // A zero-count ReduceOpMin/Max would decay to a bogus pointer op, so the
+        // min/max operations are only ever named on the MinMax path.
+        if constexpr (MinMax)
+        {
+            amrex::TypeMultiplier<amrex::ReduceOps,
+                amrex::ReduceOpSum[n_sum],
+                amrex::ReduceOpMin[n_mm],
+                amrex::ReduceOpMax[n_mm]
+            > reduce_ops;
+            using ReducedDataT = amrex::TypeMultiplier<amrex::ReduceData,
+                amrex::ParticleReal[n_sum + 2 * n_mm]>;
+
+            auto r = amrex::ParticleReduce<ReducedDataT>(
+                pc,
+                [=] AMREX_GPU_DEVICE (PType const & p) noexcept -> typename ReducedDataT::Type
                 {
-                    constexpr SumSpec s = desc.sums[i];
-                    amrex::get<i>(out) =
-                        deviation<s.a>(p, shift_d) * deviation<s.b>(p, shift_d) * p_w;
-                });
-                if constexpr (MinMax)
-                {
+                    typename ReducedDataT::Type out;
+                    fill_sum_slots<P, Spin>(out, p, shift_d);
                     amrex::constexpr_for<0, n_mm>([&] (auto j)
                     {
                         constexpr Coord c = desc.minmax[j];
@@ -513,24 +666,38 @@ namespace
                         amrex::get<n_sum + j>(out) = v;
                         amrex::get<n_sum + n_mm + j>(out) = v;
                     });
-                }
-                return out;
-            },
-            reduce_ops
-        );
+                    return out;
+                },
+                reduce_ops
+            );
 
-        // extract this rank's partial sums, minima and maxima
-        std::array<amrex::ParticleReal, n_sum> values_sum {};
-        amrex::constexpr_for<0, n_sum>([&] (auto i) { values_sum[i] = amrex::get<i>(r); });
-        [[maybe_unused]] std::array<amrex::ParticleReal, (MinMax ? max_minmax : 1)> values_min {};
-        [[maybe_unused]] std::array<amrex::ParticleReal, (MinMax ? max_minmax : 1)> values_max {};
-        if constexpr (MinMax)
-        {
+            amrex::constexpr_for<0, n_sum>([&] (auto i) { values_sum[i] = amrex::get<i>(r); });
             amrex::constexpr_for<0, n_mm>([&] (auto j)
             {
                 values_min[j] = amrex::get<n_sum + j>(r);
                 values_max[j] = amrex::get<n_sum + n_mm + j>(r);
             });
+        }
+        else
+        {
+            amrex::TypeMultiplier<amrex::ReduceOps,
+                amrex::ReduceOpSum[n_sum]
+            > reduce_ops;
+            using ReducedDataT = amrex::TypeMultiplier<amrex::ReduceData,
+                amrex::ParticleReal[n_sum]>;
+
+            auto r = amrex::ParticleReduce<ReducedDataT>(
+                pc,
+                [=] AMREX_GPU_DEVICE (PType const & p) noexcept -> typename ReducedDataT::Type
+                {
+                    typename ReducedDataT::Type out;
+                    fill_sum_slots<P, Spin>(out, p, shift_d);
+                    return out;
+                },
+                reduce_ops
+            );
+
+            amrex::constexpr_for<0, n_sum>([&] (auto i) { values_sum[i] = amrex::get<i>(r); });
         }
 
         // reduce across MPI ranks (allreduce)
@@ -624,12 +791,121 @@ namespace
 
         return m;
     }
+
+    /** Dispatch the spin / min-max flags at a fixed compile-time profile. */
+    template <MomentsProfile P>
+    RawMoments dispatch_flags (
+        ImpactXParticleContainer const & pc,
+        std::array<amrex::ParticleReal, 9> const & shift,
+        amrex::ParticleReal const q_C,
+        MomentsSelection const & sel)
+    {
+        if (sel.spin && sel.minmax)  { return reduce_and_recover<P, true,  true >(pc, shift, q_C); }
+        if (sel.spin && !sel.minmax) { return reduce_and_recover<P, true,  false>(pc, shift, q_C); }
+        if (!sel.spin && sel.minmax) { return reduce_and_recover<P, false, true >(pc, shift, q_C); }
+        return reduce_and_recover<P, false, false>(pc, shift, q_C);
+    }
+
+    /** Run the single-pass reduction for a selection, choosing the compile-time
+     *  profile at runtime. All 4 x 2 x 2 instantiations are generated from the
+     *  one reduce_and_recover kernel body.
+     */
+    RawMoments dispatch_reduce (
+        ImpactXParticleContainer const & pc,
+        std::array<amrex::ParticleReal, 9> const & shift,
+        amrex::ParticleReal const q_C,
+        MomentsSelection const & sel)
+    {
+        switch (sel.profile)
+        {
+            case MomentsProfile::Positions: return dispatch_flags<MomentsProfile::Positions>(pc, shift, q_C, sel);
+            case MomentsProfile::Sizes:     return dispatch_flags<MomentsProfile::Sizes>(pc, shift, q_C, sel);
+            case MomentsProfile::Twiss:     return dispatch_flags<MomentsProfile::Twiss>(pc, shift, q_C, sel);
+            case MomentsProfile::Full:      return dispatch_flags<MomentsProfile::Full>(pc, shift, q_C, sel);
+        }
+        return dispatch_flags<MomentsProfile::Full>(pc, shift, q_C, sel);  // unreachable
+    }
 } // namespace
+
+    MomentsSelection
+    all_beam_moments_selection (bool const eigen)
+    {
+        MomentsSelection sel;
+        sel.profile = MomentsProfile::Full;
+        sel.spin = true;
+        sel.minmax = true;
+        sel.eigen = eigen;
+        sel.keys.clear();  // empty => emit every covered key (i.e. all of them)
+        return sel;
+    }
+
+    MomentsSelection
+    default_beam_moments_selection (bool const spin_on, bool const eigen)
+    {
+        MomentsSelection sel;
+        sel.profile = eigen ? MomentsProfile::Full : MomentsProfile::Twiss;
+        sel.spin = spin_on;
+        sel.minmax = false;
+        sel.eigen = eigen;
+        // empty => emit every covered key: all outputs except min/max, and except
+        // the spin moments when spin tracking is off
+        sel.keys.clear();
+        return sel;
+    }
+
+    MomentsSelection
+    resolve_beam_moments_selection (std::vector<std::string> const & names, bool const eigen_default)
+    {
+        // the "all" token requests the full set
+        if (names.size() == 1 && names[0] == "all")
+        {
+            return all_beam_moments_selection(eigen_default);
+        }
+
+        MomentsSelection sel;
+        sel.profile = MomentsProfile::Positions;
+        sel.spin = false;
+        sel.minmax = false;
+        sel.eigen = false;
+        sel.keys.reserve(names.size());
+        for (auto const & name : names)
+        {
+            KeyReq const req = key_requirement(canonicalize(name));  // throws if unknown
+            if (static_cast<int>(req.profile) > static_cast<int>(sel.profile))
+            {
+                sel.profile = req.profile;
+            }
+            sel.spin   = sel.spin   || req.spin;
+            sel.minmax = sel.minmax || req.minmax;
+            sel.eigen  = sel.eigen  || req.eigen;
+            sel.keys.push_back(name);  // keep the requested spelling for the output
+        }
+        if (sel.eigen && static_cast<int>(sel.profile) < static_cast<int>(MomentsProfile::Full))
+        {
+            sel.profile = MomentsProfile::Full;
+        }
+        return sel;
+    }
 
     std::unordered_map<std::string, amrex::ParticleReal>
     reduced_beam_characteristics (ImpactXParticleContainer const & pc)
     {
         BL_PROFILE("impactx::diagnostics::reduced_beam_characteristics(pc)");
+
+        // full set, for backward-compatible callers (space charge, ASCII output,
+        // deprecated Python binding); eigenemittances follow the diag flag
+        amrex::ParmParse pp_diag("diag");
+        bool eigen = false;
+        pp_diag.queryAdd("eigenemittances", eigen);
+        return reduced_beam_characteristics(pc, all_beam_moments_selection(eigen));
+    }
+
+    std::unordered_map<std::string, amrex::ParticleReal>
+    reduced_beam_characteristics (
+        ImpactXParticleContainer const & pc,
+        MomentsSelection const & selection)
+    {
+        BL_PROFILE("impactx::diagnostics::reduced_beam_characteristics(pc, selection)");
 
         using namespace amrex::literals; // for _prt
 
@@ -693,12 +969,10 @@ namespace
                 amrex::ParallelDescriptor::Bcast(shift.data(), shift.size(), src_rank);
             }
         }
-        // Single-pass reduction of the full moment set. Selective profiles that
-        // read fewer arrays and reduce fewer values are wired up in a later step;
-        // Profile::Full with spin and min/max reproduces the previous result
-        // bit-for-bit.
-        RawMoments const raw = reduce_and_recover<Profile::Full, true, true>(pc, shift, q_C);
-        return derive_and_assemble(raw, bg, bg2);
+        // Single-pass reduction using the fastest profile that covers the
+        // requested selection, then recover and assemble the requested outputs.
+        RawMoments const raw = dispatch_reduce(pc, shift, q_C, selection);
+        return derive_and_assemble(raw, bg, bg2, selection);
     }
 
     std::unordered_map<std::string, amrex::ParticleReal>
@@ -751,7 +1025,10 @@ namespace
             nan, nan, nan, nan, nan, nan,
             nan  // charge_C (TODO: with space charge)
         };
-        return derive_and_assemble(raw, bg, bg2);
+        amrex::ParmParse pp_diag("diag");
+        bool eigen = false;
+        pp_diag.queryAdd("eigenemittances", eigen);
+        return derive_and_assemble(raw, bg, bg2, all_beam_moments_selection(eigen));
     }
 
 } // namespace impactx::diagnostics
