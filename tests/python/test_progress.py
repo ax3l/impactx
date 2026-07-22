@@ -119,16 +119,23 @@ def _run(tmp_path, *args):
     return stdout
 
 
-def _run_pty(tmp_path, *args):
+def _run_pty(tmp_path, *args, cols=None):
     """Run the driver with stdout attached to a pseudo-terminal (isatty() is True).
 
     Returns the raw byte stream (including the live bar's carriage returns and ANSI
-    escapes) decoded as text.
+    escapes) decoded as text. ``cols`` sets the pseudo-terminal's width.
     """
     script = tmp_path / "progress_driver.py"
     script.write_text(DRIVER)
 
     controller, worker = pty.openpty()
+    if cols is not None:
+        import fcntl
+        import struct
+        import termios
+
+        winsz = struct.pack("HHHH", 24, cols, 0, 0)
+        fcntl.ioctl(worker, termios.TIOCSWINSZ, winsz)
     proc = subprocess.Popen(
         [sys.executable, str(script), *args],
         cwd=str(tmp_path),
@@ -226,3 +233,38 @@ def test_progress_live_bar_coexists_with_solver(tmp_path):
 
     # and it still reaches 100% at s = total length
     assert re.search(r"100%  time ", out), out
+
+
+@requires_pty
+def test_progress_live_bar_narrow_terminal(tmp_path):
+    """On a narrow terminal, every bar frame fits the width (no line wrapping).
+
+    A frame wider than the terminal would wrap, and a wrapped line cannot be erased
+    with a carriage return anymore -- each redraw would then leave a stale row behind
+    (newline spam). The bar re-queries the width at every redraw, so this also covers
+    window resizes mid-run.
+    """
+    ncols = 40
+    out = _run_pty(tmp_path, "auto", "1", cols=ncols)
+
+    frames = [seg for seg in out.split("\r") if "Tracking" in seg]
+    assert frames, out
+
+    ansi = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+    bar_widths = set()
+    for seg in frames:
+        # visible content of this frame: strip ANSI escapes, stop at a newline
+        visible = ansi.sub("", seg).split("\n")[0]
+        assert len(visible) < ncols, (
+            f"frame wider than terminal ({len(visible)} cols): {visible!r}"
+        )
+        bar = re.search(r"\[([#+-]*)\]", visible)
+        if bar:
+            bar_widths.add(len(bar.group(1)))
+
+    # the bar body must not change its width from frame to frame ("fluctuating"
+    # bar): the layout is computed from fixed field reserves, not frame content
+    assert len(bar_widths) == 1, f"bar width fluctuates: {sorted(bar_widths)}"
+
+    # the bar was still drawn and finished (shrunk, not disabled)
+    assert any("100%" in seg for seg in frames), out

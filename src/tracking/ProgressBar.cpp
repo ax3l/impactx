@@ -17,7 +17,12 @@
 
 #if defined(_WIN32)
 #   include <io.h>
+#   ifndef WIN32_LEAN_AND_MEAN
+#       define WIN32_LEAN_AND_MEAN
+#   endif
+#   include <windows.h>
 #else
+#   include <sys/ioctl.h>
 #   include <unistd.h>
 #endif
 
@@ -77,6 +82,58 @@ namespace
             label = label.substr(0, width - 2) + "..";
         }
         return label;
+    }
+
+    /** Current terminal width in columns, or 0 if unknown (not a terminal). */
+    int
+    terminal_columns ()
+    {
+#if defined(_WIN32)
+        CONSOLE_SCREEN_BUFFER_INFO info;
+        if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info) != 0)
+        {
+            return static_cast<int>(info.srWindow.Right - info.srWindow.Left + 1);
+        }
+        return 0;
+#else
+        struct winsize w;
+        if (ioctl(fileno(stdout), TIOCGWINSZ, &w) == 0)
+        {
+            return static_cast<int>(w.ws_col);
+        }
+        return 0;
+#endif
+    }
+
+    /** Number of terminal columns of a rendered bar line.
+     *
+     * Counts UTF-8 code points; all glyphs the bar uses occupy one column each.
+     */
+    std::size_t
+    utf8_columns (std::string const & s)
+    {
+        std::size_t n = 0;
+        for (unsigned char const c : s)
+        {
+            if ((c & 0xC0) != 0x80) { ++n; } // count code-point start bytes
+        }
+        return n;
+    }
+
+    /** The longest prefix of @p s that occupies at most @p ncols terminal columns. */
+    std::string
+    utf8_prefix (std::string const & s, std::size_t ncols)
+    {
+        std::size_t n = 0;
+        for (std::size_t i = 0; i < s.size(); ++i)
+        {
+            if ((static_cast<unsigned char>(s[i]) & 0xC0) != 0x80)
+            {
+                if (n == ncols) { return s.substr(0, i); }
+                ++n;
+            }
+        }
+        return s;
     }
 
     /** A filtering stream buffer that keeps a status line pinned to the bottom.
@@ -268,8 +325,12 @@ namespace
         std::string suffix;
         if (s_tot > 0.0)
         {
-            char sb[80];
-            std::snprintf(sb, sizeof(sb), "s=%.2f/%.2f m  ", s_cur, s_tot);
+            // pad the running s to the width of the total, so the field width (and
+            // with it the whole line layout) stays constant while the digits grow
+            char tot[32];
+            int const tot_width = std::snprintf(tot, sizeof(tot), "%.2f", s_tot);
+            char sb[96];
+            std::snprintf(sb, sizeof(sb), "s=%*.2f/%s m  ", tot_width, s_cur, tot);
             suffix += sb;
         }
         {
@@ -402,15 +463,17 @@ namespace
         // changes (clock-free), then repaint the bottom-pinned bar
         if (!m_io || !m_bar_buf) { return; }
 
+        // re-query the terminal width every redraw: it tracks window resizes
+        int const cols = terminal_columns();
+
         int const bucket = static_cast<int>(frac * 8.0 * m_bar_width);
-        if (bucket == m_last_bucket && frac < 1.0) { return; }
+        if (bucket == m_last_bucket && cols == m_last_cols && frac < 1.0) { return; }
         m_last_bucket = bucket;
+        m_last_cols = cols;
 
         double const elapsed = amrex::second() - m_start_time;
-        std::string const line = render_bar(frac, s, m_total_s, m_bar_width, elapsed,
-                                            truncate_label(label, 24), m_ascii);
-
-        static_cast<BottomBar *>(m_bar_buf.get())->set_bar(line);
+        static_cast<BottomBar *>(m_bar_buf.get())->set_bar(
+            render_fit(frac, s, elapsed, label, cols));
     }
 
 
@@ -420,11 +483,67 @@ namespace
         if (m_mode != Mode::Live || !m_io || !m_bar_buf) { return; }
 
         double const elapsed = amrex::second() - m_start_time;
-        std::string const line = render_bar(1.0, m_total_s, m_total_s, m_bar_width,
-                                            elapsed, "done", m_ascii);
-        static_cast<BottomBar *>(m_bar_buf.get())->finish_bar(line);
+        static_cast<BottomBar *>(m_bar_buf.get())->finish_bar(
+            render_fit(1.0, m_total_s, elapsed, "done", terminal_columns()));
 
         uninstall();
+    }
+
+
+    std::string
+    ProgressBar::render_fit (
+        double frac, double s_cur, double elapsed,
+        std::string const & label, int max_cols
+    ) const
+    {
+        // unknown width (e.g. a forced bar in a pipe): assume a classic 80-column line
+        if (max_cols <= 0) { max_cols = 80; }
+        // never draw into the last column: writing there triggers auto-wrap, and a
+        // wrapped line cannot be erased with a carriage return anymore
+        int const usable = std::max(max_cols - 1, 8);
+
+        // The layout is computed from content-independent field reserves, NOT from the
+        // rendered text: element labels, the running s digits and the ETA all change
+        // from step to step, and a layout derived from them would make the bar body
+        // change its width from frame to frame (a "fluctuating" bar).
+        int const overhead = 9 + 2 + 2; // "Tracking " + bar caps + "  " separator
+        int const pct_cols = 6;         // "100%  "
+        int const time_cols = 12;       // "time H:MM:SS" / "ETA ..." reserve
+        int s_cols = 0;
+        if (m_total_s > 0.0)
+        {
+            char tot[32];
+            // "s=" + total + "/" + total + " m" + "  "
+            s_cols = 2 * std::snprintf(tot, sizeof(tot), "%.2f", m_total_s) + 7;
+        }
+        int const fixed = overhead + pct_cols + time_cols;
+
+        // prefer the full-width bar; the element label gets the leftover columns
+        double s_tot = m_total_s;
+        int const label_cols = usable - fixed - s_cols - m_bar_width;
+        std::string lab;
+        if (label_cols >= 4)
+        {
+            lab = truncate_label(label, static_cast<std::size_t>(std::min(label_cols, 24)));
+        }
+
+        // narrow: drop the label, then the s read-out, before shrinking the bar
+        int bar_width = std::min(m_bar_width, usable - fixed - s_cols);
+        if (bar_width < 8)
+        {
+            s_tot = 0.0;
+            bar_width = std::min(m_bar_width, usable - fixed);
+        }
+        bar_width = std::max(bar_width, 8);
+
+        std::string line = render_bar(frac, s_cur, s_tot, bar_width, elapsed, lab, m_ascii);
+
+        // last resort (very narrow terminal): hard-truncate at the column limit
+        if (utf8_columns(line) > static_cast<std::size_t>(usable))
+        {
+            line = utf8_prefix(line, static_cast<std::size_t>(usable));
+        }
+        return line;
     }
 
 } // namespace impactx

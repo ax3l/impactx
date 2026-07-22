@@ -168,8 +168,20 @@ namespace impactx
         /** @return true if per-step banner lines are emitted */
         bool wants_banner () const { return m_mode == Mode::Banner; }
 
+    private:
         /** Erase the pinned bar and restore ``amrex::OutStream()``'s stream buffer. */
         void uninstall ();
+
+        /** Render a frame that fits into @p max_cols terminal columns.
+         *
+         * Never returns a line wider than ``max_cols`` (a wrapped line could not be
+         * erased with a carriage return): the bar is shrunk first, then the element
+         * label is dropped, then the line is hard-truncated.
+         */
+        std::string render_fit (
+            double frac, double s_cur, double elapsed,
+            std::string const & label, int max_cols
+        ) const;
 
         Mode m_mode = Mode::Silent;
         int m_verbose = 1;
@@ -177,6 +189,7 @@ namespace impactx
         double m_total_s = 0.0;  //!< total path length in meters (for the ``s`` read-out)
         int m_bar_width = 24;
         int m_last_bucket = -1;  //!< throttle: redraw only when this changes
+        int m_last_cols = -1;    //!< terminal width at the last redraw (resize detection)
         bool m_ascii = false;
         bool m_io = false;       //!< this is the I/O rank (only it draws)
         double m_start_time = 0.0;             //!< amrex::second() at construction (Live)
