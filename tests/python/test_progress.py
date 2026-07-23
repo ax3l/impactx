@@ -268,3 +268,81 @@ def test_progress_live_bar_narrow_terminal(tmp_path):
 
     # the bar was still drawn and finished (shrunk, not disabled)
     assert any("100%" in seg for seg in frames), out
+
+
+# a slowed-down run (per-slice sleep hook), so a terminal resize can land mid-run
+SLOW_DRIVER = DRIVER.replace(
+    "sim.track_particles()",
+    'sim.hook["before_slice"] = lambda s: __import__("time").sleep(0.008)\n'
+    "sim.track_particles()",
+)
+
+
+@requires_pty
+def test_progress_live_bar_shrink_erases_wrapped_rows(tmp_path):
+    """Shrinking the terminal below the drawn bar's width must not leave stale rows.
+
+    When the window shrinks below the drawn line's length, the terminal re-wraps
+    that line onto several rows; erasing only the cursor's row would leave the
+    upper row(s) behind. The erase clears the extra wrapped rows with ANSI
+    "cursor up + erase line" (see BottomBar::erase).
+    """
+    import fcntl
+    import select
+    import signal
+    import struct
+    import termios
+    import time
+
+    script = tmp_path / "progress_driver_slow.py"
+    script.write_text(SLOW_DRIVER)
+
+    def set_cols(fd, cols):
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, cols, 0, 0))
+
+    controller, worker = pty.openpty()
+    set_cols(worker, 100)  # start wide: the drawn bar is ~70 columns
+    proc = subprocess.Popen(
+        [sys.executable, str(script), "auto", "1"],
+        cwd=str(tmp_path),
+        stdout=worker,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+    )
+    os.close(worker)
+
+    data = b""
+    resize_offset = None
+    t0 = time.time()
+    while True:
+        readable, _, _ = select.select([controller], [], [], 0.2)
+        if readable:
+            try:
+                chunk = os.read(controller, 65536)
+            except OSError:  # EIO at EOF on Linux
+                break
+            if not chunk:
+                break
+            data += chunk
+        # shrink below the drawn bar's width once tracking is underway
+        if resize_offset is None and b"Tracking" in data and time.time() - t0 > 0.5:
+            set_cols(controller, 40)
+            proc.send_signal(signal.SIGWINCH)
+            resize_offset = len(data)
+    os.close(controller)
+    proc.wait(timeout=300)
+    assert proc.returncode == 0
+
+    if resize_offset is None:
+        pytest.skip("run finished before the resize could land")
+
+    out = data.decode("utf-8", errors="replace")
+    # before the shrink the bar always fits its width: no up-erase needed
+    assert "\x1b[1A" not in out[:resize_offset]
+    # after the shrink, the stale wrapped row is erased with cursor-up + erase-line
+    assert "\x1b[1A\x1b[2K" in out[resize_offset:], out[resize_offset:][:400]
+    # ... and the cursor returns to the bar's bottom row afterwards (cursor-down),
+    # so the bar stays anchored instead of migrating to the top of the terminal
+    assert re.search(
+        r"\x1b\[1A\x1b\[2K(\x1b\[1A\x1b\[2K)*\x1b\[\d+B", out[resize_offset:]
+    )

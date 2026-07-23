@@ -160,6 +160,7 @@ namespace
         {
             erase();
             m_bar = bar;
+            m_bar_cols = utf8_columns(bar);
             raw(m_bar);
             m_shown = !m_bar.empty();
             m_dest->pubsync();
@@ -172,6 +173,7 @@ namespace
             raw(bar);
             raw("\n");
             m_bar.clear();
+            m_bar_cols = 0;
             m_shown = false;
             m_dest->pubsync();
         }
@@ -181,6 +183,7 @@ namespace
         {
             erase();
             m_bar.clear();
+            m_bar_cols = 0;
             m_shown = false;
             m_dest->pubsync();
         }
@@ -218,6 +221,24 @@ namespace
             if (m_shown)
             {
                 raw("\r\x1b[2K"); // carriage return + ANSI "erase entire line"
+
+                // If the terminal was shrunk below the drawn bar's width, the bar has
+                // re-wrapped onto multiple rows; the erase above only cleared the
+                // bottom one. Clear the remaining wrapped rows above it as well.
+                int const cols = terminal_columns();
+                if (cols > 0 && m_bar_cols > static_cast<std::size_t>(cols))
+                {
+                    std::size_t const extra =
+                        (m_bar_cols - 1) / static_cast<std::size_t>(cols);
+                    for (std::size_t i = 0; i < extra; ++i)
+                    {
+                        raw("\x1b[1A\x1b[2K"); // cursor up + erase that row
+                    }
+                    // return to the bar's bottom row: drawing at the top row instead
+                    // would migrate the bar one row up on every shrink, until it
+                    // reaches (and glitches at) the top of the terminal
+                    raw("\x1b[" + std::to_string(extra) + "B"); // cursor down
+                }
                 m_shown = false;
             }
         }
@@ -238,9 +259,10 @@ namespace
             }
         }
 
-        std::streambuf * m_dest;  //!< the real terminal buffer we forward to
-        std::string m_bar;        //!< current pinned bar text (no trailing newline)
-        bool m_shown = false;     //!< is the bar currently on the terminal's last line?
+        std::streambuf * m_dest;      //!< the real terminal buffer we forward to
+        std::string m_bar;            //!< current pinned bar text (no trailing newline)
+        std::size_t m_bar_cols = 0;   //!< terminal columns the pinned bar occupies
+        bool m_shown = false;         //!< is the bar currently on the terminal's last line?
     };
 } // namespace
 
