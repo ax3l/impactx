@@ -20,6 +20,9 @@
 #   ifndef WIN32_LEAN_AND_MEAN
 #       define WIN32_LEAN_AND_MEAN
 #   endif
+#   ifndef NOMINMAX
+#       define NOMINMAX // windows.h: no min/max macros that break std::min/std::max
+#   endif
 #   include <windows.h>
 #else
 #   include <sys/ioctl.h>
