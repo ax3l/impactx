@@ -1807,7 +1807,7 @@ For an element with ``nslice`` > 1, the pushes and maps refer to a single ``ds/n
 
       Scale factor (in meters^(1/2)) of the IOTA nonlinear magnetic insert element used for computing H and I.
 
-.. py:class:: impactx.elements.Source(distribution, openpmd_path, active_once=True, name=None)
+.. py:class:: impactx.elements.Source(distribution, openpmd_path, active_once=True, load_ref_particle=True, name=None)
 
    A particle source.
    Currently, this only supports openPMD files from our :py:class:`impactx.elements.BeamMonitor`
@@ -1815,7 +1815,20 @@ For an element with ``nslice`` > 1, the pushes and maps refer to a single ``ds/n
    :param distribution: Distribution type of particles in the source. currently, only ``"openPMD"`` is supported
    :param openpmd_path: path to the openPMD series
    :param active_once: Inject particles only for the first lattice period. Default: ``True``
+   :param load_ref_particle: Restore the reference particle from the species metadata of the openPMD file. Default: ``True``
    :param name: an optional name for the element
+
+   .. note::
+
+      With ``load_ref_particle``, the reference particle state (:math:`s`, positions, momenta, mass, charge
+      and the gyromagnetic anomaly) is restored exactly from the iteration the particles are read from.
+      Set ``load_ref_particle=False`` to load all particles relative to a manually configured reference
+      particle: the relative particle coordinates in the file (in particular the momenta :math:`p_x`,
+      :math:`p_y` and :math:`p_t`, which are normalized by the reference particle momentum) are then
+      interpreted with respect to the existing reference particle.
+      The existing reference particle in that case needs to be manually configured before the tracking loop.
+      This option acts when particles are tracked or pushed (:py:func:`impactx.push`);
+      it has no effect in envelope or reference-particle-only tracking.
 
    .. attention::
 
