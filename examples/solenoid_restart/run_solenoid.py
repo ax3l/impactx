@@ -6,7 +6,11 @@
 #
 # -*- coding: utf-8 -*-
 
+import openpmd_api as io
+
 from impactx import ImpactX, elements, push
+
+source_path = "../solenoid.py/diags/openPMD/m1.h5"
 
 sim = ImpactX()
 
@@ -18,18 +22,37 @@ sim.slice_step_diagnostics = True
 # domain decomposition & space charge mesh
 sim.init_grids()
 
-# load a 250 MeV proton beam with an initial
-# horizontal rms emittance of 1 um and an
-# initial vertical rms emittance of 2 um
-kin_energy_MeV = 250.0  # reference energy
-
-#   reference particle
+# load the particle bunch and the reference particle (a 250 MeV proton beam)
+# from the final beam monitor output of the solenoid example
 beam = sim.beam
-ref = beam.ref
-ref.set_species("proton").set_kin_energy_MeV(kin_energy_MeV)
+push(beam, elements.Source("openPMD", source_path))
 
-#   load particle bunch from file
-push(beam, elements.Source("openPMD", "../solenoid.py/diags/openPMD/m1.h5"))
+# check that the reference particle was restored exactly from the file metadata
+ref = beam.ref
+series = io.Series(source_path, io.Access.read_only)
+last_step = list(series.iterations)[-1]
+beam_md = series.iterations[last_step].particles["beam"]
+for attr, value in [
+    ("s_ref", ref.s),
+    ("x_ref", ref.x),
+    ("y_ref", ref.y),
+    ("z_ref", ref.z),
+    ("t_ref", ref.t),
+    ("px_ref", ref.px),
+    ("py_ref", ref.py),
+    ("pz_ref", ref.pz),
+    ("pt_ref", ref.pt),
+    ("mass_ref", ref.mass),
+    ("charge_ref", ref.charge),
+    ("gyromagnetic_anomaly_ref", ref.gyromagnetic_anomaly),
+]:
+    assert value == beam_md.get_attribute(attr), attr
+series.close()
+
+# this is a 250 MeV proton at the end of the first solenoid channel (one period)
+assert abs(ref.kin_energy_MeV - 250.0) < 1e-11
+assert abs(ref.charge_qe - 1.0) < 1e-14
+assert abs(ref.s - 3.820395) < 1e-11
 
 # add beam diagnostics
 m1 = elements.BeamMonitor("m1", backend="h5")
