@@ -2402,7 +2402,8 @@ void init_elements(py::module& m)
                      src,
                      std::make_pair("distribution", src.m_distribution),
                      std::make_pair("openpmd_path", src.m_series_name),
-                     std::make_pair("active_once", src.m_active_once)
+                     std::make_pair("active_once", src.m_active_once),
+                     std::make_pair("load_ref_particle", src.m_load_ref_particle)
                  );
              }
         )
@@ -2412,7 +2413,8 @@ void init_elements(py::module& m)
                     src,
                     std::make_pair("distribution", src.m_distribution),
                     std::make_pair("openpmd_path", src.m_series_name),
-                    std::make_pair("active_once", src.m_active_once)
+                    std::make_pair("active_once", src.m_active_once),
+                    std::make_pair("load_ref_particle", src.m_load_ref_particle)
                 );
             }
         )
@@ -2420,11 +2422,13 @@ void init_elements(py::module& m)
              std::string,
              std::string,
              bool,
+             bool,
              std::optional<std::string>
          >(),
              py::arg("distribution"),
              py::arg("openpmd_path"),
              py::arg("active_once") = Source::DEFAULT_active_once,
+             py::arg("load_ref_particle") = Source::DEFAULT_load_ref_particle,
              py::arg("name") = py::none(),
              "A particle source."
         )
@@ -2442,6 +2446,11 @@ void init_elements(py::module& m)
             [](Source & src) { return src.m_active_once; },
             [](Source & src, bool actice_once) { src.m_active_once = actice_once; },
             "Inject particles only for the first lattice period."
+        )
+        .def_property("load_ref_particle",
+            [](Source & src) { return src.m_load_ref_particle; },
+            [](Source & src, bool load_ref_particle) { src.m_load_ref_particle = load_ref_particle; },
+            "Restore the reference particle from the species metadata of the openPMD file (particle tracking only)."
         )
     ;
     register_push(py_Source);
