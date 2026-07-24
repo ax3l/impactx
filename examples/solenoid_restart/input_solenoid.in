@@ -1,13 +1,7 @@
 ###############################################################################
 # Reference Particle
 ###############################################################################
-beam.kin_energy = 250.0
-beam.particle = proton
-
-# ignored
-beam.charge = 1.0e-9
-beam.units = static
-beam.distribution = empty
+# Restored from file in the `source` element below.
 
 
 ###############################################################################

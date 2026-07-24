@@ -2047,12 +2047,13 @@ When ImpactX needs to sort particles spatially, it will redistribute them over M
 
     The reference particle state (:math:`s`, positions, momenta, mass, charge and the gyromagnetic anomaly)
     is restored exactly from the iteration the particles are read from.
+    In this case, the :ref:`beam.* input block <running-cpp-parameters-particle>` can be omitted entirely.
     Set to ``false`` to load all particles relative to a manually configured reference particle:
     the relative particle coordinates in the file (in particular the momenta :math:`p_x`, :math:`p_y`
     and :math:`p_t`, which are normalized by the reference particle momentum) are then interpreted
     with respect to the existing reference particle.
     The existing reference particle in that case needs to be manually configured before the tracking loop.
-    This option acts during particle tracking; it has no effect in envelope or reference-particle-only tracking.
+    This option acts during particle tracking, it has no effect in envelope or reference-particle-only tracking.
 
 
 ``spin_map``

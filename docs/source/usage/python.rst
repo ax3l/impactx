@@ -1827,7 +1827,7 @@ For an element with ``nslice`` > 1, the pushes and maps refer to a single ``ds/n
       :math:`p_y` and :math:`p_t`, which are normalized by the reference particle momentum) are then
       interpreted with respect to the existing reference particle.
       The existing reference particle in that case needs to be manually configured before the tracking loop.
-      This option acts when particles are tracked or pushed (:py:func:`impactx.push`);
+      This option acts when particles are tracked or pushed (:py:func:`impactx.push`),
       it has no effect in envelope or reference-particle-only tracking.
 
    .. attention::
