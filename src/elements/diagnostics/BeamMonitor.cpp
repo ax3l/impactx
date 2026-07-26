@@ -327,17 +327,14 @@ namespace detail {
         }
         else
         {
-            // zero-extent constant records: openPMD-api 0.17+ readers reject
+            // zero-extent constant record: openPMD-api 0.17+ readers reject
             // particle species without any component extent by default
+            auto const scalar = openPMD::RecordComponent::SCALAR;
             io::Datatype const dtype_fl = io::determineDatatype<amrex::ParticleReal>();
             auto d_none = io::Dataset(dtype_fl, {0});
 
-            beam["positionOffset"]["x"].resetDataset(d_none);
-            beam["positionOffset"]["x"].makeConstant(ref_part.x);
-            beam["positionOffset"]["y"].resetDataset(d_none);
-            beam["positionOffset"]["y"].makeConstant(ref_part.y);
-            beam["positionOffset"]["t"].resetDataset(d_none);
-            beam["positionOffset"]["t"].makeConstant(ref_part.t);
+            beam["empty"][scalar].resetDataset(d_none);
+            beam["empty"][scalar].makeConstant(amrex::ParticleReal(0.0));
         }
 #else
         amrex::ignore_unused(pc, real_soa_names, int_soa_names, ref_part, step);
