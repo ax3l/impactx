@@ -101,6 +101,8 @@ The code writes out the values in an ASCII file prefixed ``reduced_beam_characte
 
 * ``step``
     Iteration within the simulation
+* ``period``
+    Current period (turn or cycle) for periodic lattices (unit: dimensionless)
 * ``s``
     Reference particle coordinate ``s`` (unit: meter)
 * ``mean/min/max_x``, ``mean/min/max_y``, ``mean/min/max_t``

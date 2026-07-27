@@ -385,6 +385,7 @@ namespace detail {
         if (m_beam_moments)
         {
             m_rbc = impactx::diagnostics::reduced_beam_characteristics(pc);
+            m_rbc["period"] = period;  // current period (turn or cycle)
         }
 
         // component names

@@ -82,8 +82,11 @@ def check_series(name, particles, beam_moments, npart):
             assert attr in beam.attributes
 
         # beam moments attributes: present only if enabled
-        for attr in ("sig_x", "sig_y", "sig_t", "emittance_x", "charge_C"):
+        # this includes the current period (turn)
+        for attr in ("sig_x", "sig_y", "sig_t", "emittance_x", "charge_C", "period"):
             assert (attr in beam.attributes) == beam_moments
+        if beam_moments:
+            assert beam.get_attribute("period") == 0  # single pass
 
         # per-particle records: present only if enabled
         if particles:
@@ -91,9 +94,9 @@ def check_series(name, particles, beam_moments, npart):
             assert "positionOffset" in beam
             assert beam["id"][io.Record_Component.SCALAR].shape == [npart]
         else:
-            # zero-extent constant positionOffset for openPMD-api 0.17+ readers
-            assert sorted(beam) == ["positionOffset"]
-            assert beam["positionOffset"]["x"].shape == [0]
+            # zero-extent constant record for openPMD-api 0.17+ readers
+            assert sorted(beam) == ["empty"]
+            assert beam["empty"][io.Record_Component.SCALAR].shape == [0]
     assert n_iterations == 2
     series.close()
 
