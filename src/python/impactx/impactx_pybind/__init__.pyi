@@ -1102,7 +1102,7 @@ class Config:
     have_omp: typing.ClassVar[bool] = True
     have_openpmd: typing.ClassVar[bool] = True
     have_simd: typing.ClassVar[bool] = False
-    impactx_version: typing.ClassVar[str] = "f7f29aa4054f"
+    impactx_version: typing.ClassVar[str] = "387c6aed28b6"
     openpmd_backends: typing.ClassVar[dict] = {
         "adios1": False,
         "adios2": False,
