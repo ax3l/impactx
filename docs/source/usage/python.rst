@@ -1005,7 +1005,7 @@ This module provides elements and methods for the accelerator lattice.
 
       Add a single element to the list.
 
-   .. py:method:: load_file(filename, nslice=1, min_model="linear")
+   .. py:method:: load_file(filename, nslice=1, *, min_model="linear")
 
       Load and append a lattice file from MAD-X (.madx) or PALS (e.g., .pals.yaml) formats.
 
@@ -1062,7 +1062,14 @@ This module provides elements and methods for the accelerator lattice.
 
       Elements that MAD-X itself defines as thin (``MULTIPOLE``, ``KICKER``,
       ``RFCAVITY``, ``NLLENS``) and structural elements (``MARKER``, apertures,
-      monitors) have no model tiers and are unaffected.
+      monitors) have no model tiers, so the kick or map they translate into is
+      the same at every floor.
+      Their *length*, however, is carried by drifts that the reader adds around
+      that kick, and those follow ``min_model`` like any other drift.
+      A finite-length ``RFCAVITY``, for example, becomes
+      ``ExactDrift`` + ``ShortRF`` + ``ExactDrift`` at ``min_model="exact"``.
+      The same applies to the drifts emitted for ``COLLIMATOR``, ``INSTRUMENT``,
+      ``PLACEHOLDER`` and for a ``MONITOR`` with ``L > 0``.
 
       .. warning::
 
@@ -1090,7 +1097,7 @@ This module provides elements and methods for the accelerator lattice.
          # import a lattice with at least exact-Hamiltonian element models
          sim.lattice.load_file("fodo.madx", nslice=25, min_model="exact")
 
-   .. py:method:: from_pals(pals_line, nslice=1, min_model="linear")
+   .. py:method:: from_pals(pals_line, nslice=1, *, min_model="linear")
 
       Load and append a lattice from a Particle Accelerator Lattice Standard (PALS) Python Line.
 
