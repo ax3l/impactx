@@ -8,6 +8,19 @@ License: BSD-3-Clause-LBNL
 
 from impactx import elements
 
+from .element_models import DRIFT_MODEL_CLASSES, select_model, validate_model
+
+# Quadrupole models per tier for PALS input. PALS carries its own ``unit``
+# (0: MAD-X k, 1: T/m gradient), so the classes are listed bare here instead of
+# reusing ``element_models.QUAD_MODEL_CLASSES``, which pins ``unit=0``.
+# TODO: the linear ``Quad`` has no ``unit`` argument yet, so the cheapest tier
+# available here is the paraxial one. Add it once ImpactX issue #798 (dual unit
+# systems for all focusing elements) is resolved.
+_PALS_QUAD_MODEL_CLASSES = {
+    "paraxial": elements.ChrQuad,
+    "exact": elements.ExactQuad,
+}
+
 
 def flatten_pals(pals_data, registry=None):
     """Flatten a PALS root, lattice, or beamline to a list of PALS elements.
@@ -63,16 +76,21 @@ def flatten_pals(pals_data, registry=None):
     return [pals_data]
 
 
-def read_lattice(pals_beamline, nslice=1):
+def read_lattice(pals_beamline, nslice=1, *, min_model="linear"):
     """Translate a Particle Accelerator Lattice Standard (PALS) object into ImpactX elements.
 
     https://github.com/campa-consortium/pals-python
 
     :param pals_beamline: a PALS root, lattice, or beamline object
     :param nslice: number of ds slices per element
+    :param min_model: lowest element model tier to use ("linear", "paraxial" or
+        "exact"). A floor never lowers a tier, so quadrupoles stay paraxial
+        (``ChrQuad``) at the default, see ``_PALS_QUAD_MODEL_CLASSES`` above.
     :return: list of ImpactX.KnownElements
     """
     from pals import Drift, Quadrupole
+
+    validate_model(min_model)
 
     pals_elements = flatten_pals(pals_beamline)
 
@@ -80,10 +98,9 @@ def read_lattice(pals_beamline, nslice=1):
     ix_beamline = []
     for pals_element in pals_elements:
         if isinstance(pals_element, Drift):
+            _, drift_cls = select_model(DRIFT_MODEL_CLASSES, min_model)
             ix_beamline.append(
-                elements.Drift(
-                    name=pals_element.name, ds=pals_element.length, nslice=nslice
-                )
+                drift_cls(name=pals_element.name, ds=pals_element.length, nslice=nslice)
             )
         elif isinstance(pals_element, Quadrupole):
             magnetic_multipole = pals_element.MagneticMultipoleP
@@ -102,8 +119,9 @@ def read_lattice(pals_beamline, nslice=1):
                 raise RuntimeError(
                     f"from_pals: No gradient input provided for element of kind {type(pals_element)}."
                 )
+            _, quad_cls = select_model(_PALS_QUAD_MODEL_CLASSES, min_model)
             ix_beamline.append(
-                elements.ChrQuad(
+                quad_cls(
                     name=pals_element.name,
                     ds=pals_element.length,
                     k=k_quad,

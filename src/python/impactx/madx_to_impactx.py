@@ -11,6 +11,13 @@ import warnings
 
 from impactx import Map6x6, RefPart, elements
 
+from .element_models import (
+    DRIFT_MODEL_CLASSES,
+    QUAD_MODEL_CLASSES,
+    select_model,
+    tier_rank,
+    validate_model,
+)
 from .MADXParser import MADXParser
 
 # Single-shape mapping from MAD-X APERTYPE to ImpactX Aperture.shape.
@@ -61,6 +68,7 @@ def lattice(
     options=None,
     ref_mass_MeV=None,
     bv=1.0,
+    min_model="linear",
 ):
     """
     Function that converts a list of elements in the MADXParser format into ImpactX format
@@ -72,14 +80,24 @@ def lattice(
         MAD-X exposes this as the per-node ``other_bv`` and multiplies it into
         bend angles, body multipole strengths, solenoid KS/KSI, kicker kicks,
         and RF cavity VOLT (twiss.f90:3856, 4547, 6852; trrun.f90:1610).
+    :param min_model: lowest ImpactX element model tier to translate into
+        ("linear", "paraxial" or "exact"). This raises the lower gate of the
+        model choice only. The translator still picks the cheapest model that
+        represents the MAD-X element, and a feature that already demands a
+        higher tier, such as skew multipoles, keeps it. See `build` below.
     :return: list of translated dictionaries
 
     Maintainer note (one-place-of-truth philosophy):
-    - Keep element-type mapping in one place (`madx_to_impactx_dict` below).
+    - Keep element-type mapping in one place (the `d["type"]` chain below).
+    - Keep the model-tier choice in one place per element family. Route every
+      construction of a tiered element through `build(...)` with a table of the
+      tiers ImpactX implements for it, so `min_model` applies uniformly.
     - Keep bend-body model choice in one place (`make_bend_body_element` below).
     - Prefer composition from existing ImpactX elements over silent drops.
     - Every physics fallback should `_warn(...)` and include a TODO comment.
     """
+
+    validate_model(min_model)
 
     supported_madx_elements = {
         "MARKER",
@@ -166,6 +184,71 @@ def lattice(
             _warn(message)
             warned_once.add(key)
 
+    def build(family, builders, **kwargs):
+        """Create an element at the cheapest model tier that satisfies `min_model`.
+
+        `builders` maps tier name ("linear"/"paraxial"/"exact") to the class or
+        factory for that tier, listing only the tiers ImpactX implements for this
+        family. Missing tiers are skipped upwards, so a paraxial floor on a
+        family that has only linear and exact models yields the exact one. A
+        floor that no implemented model reaches falls back to the most faithful
+        one available and warns once.
+        """
+        tier, builder = select_model(builders, min_model)
+        if tier_rank(tier) < tier_rank(min_model):
+            warn_once(
+                f"min_model:{family}",
+                f"{family} has no '{min_model}' (or higher) model in ImpactX; "
+                f"using the '{tier}' model instead.",
+            )
+        return builder(**kwargs)
+
+    def make_drift(*, name, ds):
+        """Drift of the requested model tier, with the lattice-wide `nslice`."""
+        return build("DRIFT", DRIFT_MODEL_CLASSES, name=name, ds=ds, nslice=nslice)
+
+    def make_quad(*, name, ds, k, tilt_degree):
+        """Quadrupole of the requested model tier (`k` in the MAD-X convention)."""
+        return build(
+            "QUADRUPOLE",
+            QUAD_MODEL_CLASSES,
+            name=name,
+            ds=ds,
+            k=k,
+            rotation=tilt_degree,
+            nslice=nslice,
+        )
+
+    def make_dipedge(*, name, psi, rc, g, K2, location, tilt_degree):
+        """Dipole edge of the requested model tier.
+
+        DipEdge selects its fringe-field model by argument rather than by class.
+        The 6th-order "nonlinear" map is its exact tier, the default "linear" map
+        its linear one. There is no separate paraxial fringe model, so a paraxial
+        floor rounds up to the nonlinear map. That is the same choice the synmadx
+        importer makes (`synmadx/syn2_to_impactx.py`, `cnv_dipedge`).
+        """
+
+        def dipedge(model):
+            return elements.DipEdge(
+                name=name,
+                psi=psi,
+                rc=rc,
+                g=g,
+                K2=K2,
+                model=model,
+                location=location,
+                rotation=tilt_degree,
+            )
+
+        return build(
+            "DIPEDGE",
+            {
+                "linear": lambda: dipedge("linear"),
+                "exact": lambda: dipedge("nonlinear"),
+            },
+        )
+
     def warn_unread_element_attributes(elem):
         """Warn if a MAD-X element attribute is present but not consumed."""
         ignored_meta = {"name", "type", "at", "from"}
@@ -190,15 +273,11 @@ def lattice(
             # TODO(audit): This is a paraxial length-preserving approximation.
             # Replace with dedicated thick elements when available.
             impactx_beamline.append(
-                elements.Drift(
-                    name=element_name + "_drift_in", ds=0.5 * length, nslice=nslice
-                )
+                make_drift(name=element_name + "_drift_in", ds=0.5 * length)
             )
             impactx_beamline.append(thin_element)
             impactx_beamline.append(
-                elements.Drift(
-                    name=element_name + "_drift_out", ds=0.5 * length, nslice=nslice
-                )
+                make_drift(name=element_name + "_drift_out", ds=0.5 * length)
             )
         else:
             impactx_beamline.append(thin_element)
@@ -351,10 +430,10 @@ def lattice(
         has_aperture = bool(aperture_params_list)
         if ds > 0.0 and has_aperture:
             _append_apertures("_aperture_entry")
-            impactx_beamline.append(elements.Drift(name=name, ds=ds, nslice=nslice))
+            impactx_beamline.append(make_drift(name=name, ds=ds))
             return "aperture_drift"
         if ds > 0.0:
-            impactx_beamline.append(elements.Drift(name=name, ds=ds, nslice=nslice))
+            impactx_beamline.append(make_drift(name=name, ds=ds))
             return "drift_only"
         if has_aperture:
             _append_apertures("_aperture")
@@ -376,9 +455,9 @@ def lattice(
         if ds > 0.0:
             if has_aperture:
                 _append_apertures("_aperture_entry")
-                impactx_beamline.append(elements.Drift(name=name, ds=ds, nslice=nslice))
+                impactx_beamline.append(make_drift(name=name, ds=ds))
                 return "aperture_drift"
-            impactx_beamline.append(elements.Drift(name=name, ds=ds, nslice=nslice))
+            impactx_beamline.append(make_drift(name=name, ds=ds))
             return "drift_only"
 
         impactx_beamline.append(elements.Marker(name=name))
@@ -415,10 +494,14 @@ def lattice(
         1) ExactCFbend when skew or higher body multipoles are present
         2) CFbend for pure dipole+quadrupole
         3) Sbend for pure dipole geometry
+
+        Each rung offers the model tiers ImpactX implements for it and lets
+        `min_model` raise the choice within that rung. There is no chromatic bend
+        model, so a paraxial floor rounds up to the exact one.
         """
-        use_exact_cfbend = any(abs(v) > 0.0 for v in (k1s, k2, k2s, k3, k3s))
-        if use_exact_cfbend:
-            curvature = 1.0 / rc if rc != 0.0 else 0.0
+        curvature = 1.0 / rc if rc != 0.0 else 0.0
+
+        def exact_cfbend():
             return elements.ExactCFbend(
                 name=name,
                 ds=ds,
@@ -428,21 +511,48 @@ def lattice(
                 rotation=tilt_degree,
                 nslice=nslice,
             )
+
+        use_exact_cfbend = any(abs(v) > 0.0 for v in (k1s, k2, k2s, k3, k3s))
+        if use_exact_cfbend:
+            # Skew or higher-order body multipoles have no linear ImpactX model.
+            # This rung is already at the exact tier, min_model cannot raise it.
+            return build("SBEND/RBEND body", {"exact": exact_cfbend})
         if abs(k1) > 0.0:
-            return elements.CFbend(
-                name=name,
-                ds=ds,
-                rc=rc,
-                k=k1,
-                rotation=tilt_degree,
-                nslice=nslice,
+            return build(
+                "SBEND/RBEND body",
+                {
+                    "linear": lambda: elements.CFbend(
+                        name=name,
+                        ds=ds,
+                        rc=rc,
+                        k=k1,
+                        rotation=tilt_degree,
+                        nslice=nslice,
+                    ),
+                    "exact": exact_cfbend,
+                },
             )
-        return elements.Sbend(
-            name=name,
-            ds=ds,
-            rc=rc,
-            rotation=tilt_degree,
-            nslice=nslice,
+        return build(
+            "SBEND/RBEND body",
+            {
+                "linear": lambda: elements.Sbend(
+                    name=name,
+                    ds=ds,
+                    rc=rc,
+                    rotation=tilt_degree,
+                    nslice=nslice,
+                ),
+                # ExactSbend takes the bend angle instead of the radius of
+                # curvature, in degrees. Both call sites derive rc as ds/angle,
+                # so ds/rc recovers the MAD-X ANGLE exactly.
+                "exact": lambda: elements.ExactSbend(
+                    name=name,
+                    ds=ds,
+                    phi=ds * curvature * rad_to_deg,
+                    rotation=tilt_degree,
+                    nslice=nslice,
+                ),
+            },
         )
 
     def make_thin_dipole_kick(*, name, angle, tilt_degree):
@@ -585,18 +695,14 @@ def lattice(
                 # MAD-X manual 11.20: INSTRUMENT is optically drift-like.
                 ds = d.get("l", 0.0)
                 if ds > 0.0:
-                    impactx_beamline.append(
-                        elements.Drift(name=d["name"], ds=ds, nslice=nslice)
-                    )
+                    impactx_beamline.append(make_drift(name=d["name"], ds=ds))
                 else:
                     impactx_beamline.append(elements.Marker(name=d["name"]))
                     _warn(f"INSTRUMENT '{d['name']}' has zero length; using Marker.")
             elif d["type"] == "drift":
                 ds = d.get("l", 0.0)
                 if ds > 0:
-                    impactx_beamline.append(
-                        elements.Drift(name=d["name"], ds=ds, nslice=nslice)
-                    )
+                    impactx_beamline.append(make_drift(name=d["name"], ds=ds))
             elif d["type"] == "quadrupole":
                 ds = d.get("l", 0.0)
                 k1 = d.get("k1", 0.0)
@@ -604,6 +710,9 @@ def lattice(
                 tilt_degree = d.get("tilt", 0.0) * rad_to_deg
                 if ds > 0:
                     if abs(k1s) > 0:
+                        # A skew quadrupole has no linear or paraxial ImpactX
+                        # model. It is already the exact tier, min_model cannot
+                        # raise it.
                         impactx_beamline.append(
                             elements.ExactMultipole(
                                 name=d["name"],
@@ -616,12 +725,8 @@ def lattice(
                         )
                     else:
                         impactx_beamline.append(
-                            elements.Quad(
-                                name=d["name"],
-                                ds=ds,
-                                k=k1,
-                                rotation=tilt_degree,
-                                nslice=nslice,
+                            make_quad(
+                                name=d["name"], ds=ds, k=k1, tilt_degree=tilt_degree
                             )
                         )
                 else:
@@ -663,14 +768,14 @@ def lattice(
 
                         if has_edges:
                             impactx_beamline.append(
-                                elements.DipEdge(
+                                make_dipedge(
                                     name=d["name"] + "_edge_entry",
                                     psi=e1,
                                     rc=rc,
                                     g=2.0 * hgap,
                                     K2=fint,
                                     location="entry",
-                                    rotation=tilt_degree,
+                                    tilt_degree=tilt_degree,
                                 )
                             )
 
@@ -691,14 +796,14 @@ def lattice(
 
                         if has_edges:
                             impactx_beamline.append(
-                                elements.DipEdge(
+                                make_dipedge(
                                     name=d["name"] + "_edge_exit",
                                     psi=e2,
                                     rc=rc,
                                     g=2.0 * hgap,
                                     K2=fintx,
                                     location="exit",
-                                    rotation=tilt_degree,
+                                    tilt_degree=tilt_degree,
                                 )
                             )
                     else:
@@ -723,18 +828,15 @@ def lattice(
                             )
                         elif abs(k1) > 0:
                             impactx_beamline.append(
-                                elements.Quad(
+                                make_quad(
                                     name=d["name"],
                                     ds=ds,
                                     k=k1,
-                                    rotation=tilt_degree,
-                                    nslice=nslice,
+                                    tilt_degree=tilt_degree,
                                 )
                             )
                         else:
-                            impactx_beamline.append(
-                                elements.Drift(name=d["name"], ds=ds, nslice=nslice)
-                            )
+                            impactx_beamline.append(make_drift(name=d["name"], ds=ds))
                         _warn(
                             f"SBEND '{d['name']}' has ANGLE=0; using straight-element fallback."
                         )
@@ -817,14 +919,14 @@ def lattice(
 
                         # Entry DipEdge
                         impactx_beamline.append(
-                            elements.DipEdge(
+                            make_dipedge(
                                 name=d["name"] + "_edge_entry",
                                 psi=e1,
                                 rc=rc,
                                 g=2.0 * hgap,
                                 K2=fint,
                                 location="entry",
-                                rotation=tilt_degree,
+                                tilt_degree=tilt_degree,
                             )
                         )
 
@@ -845,14 +947,14 @@ def lattice(
                         )
                         # Exit DipEdge
                         impactx_beamline.append(
-                            elements.DipEdge(
+                            make_dipedge(
                                 name=d["name"] + "_edge_exit",
                                 psi=e2,
                                 rc=rc,
                                 g=2.0 * hgap,
                                 K2=fintx,
                                 location="exit",
-                                rotation=tilt_degree,
+                                tilt_degree=tilt_degree,
                             )
                         )
                     else:
@@ -872,17 +974,16 @@ def lattice(
                             )
                         elif abs(k1) > 0:
                             impactx_beamline.append(
-                                elements.Quad(
+                                make_quad(
                                     name=d["name"],
                                     ds=l_arc,
                                     k=k1,
-                                    rotation=tilt_degree,
-                                    nslice=nslice,
+                                    tilt_degree=tilt_degree,
                                 )
                             )
                         else:
                             impactx_beamline.append(
-                                elements.Drift(name=d["name"], ds=l_arc, nslice=nslice)
+                                make_drift(name=d["name"], ds=l_arc)
                             )
                         _warn(
                             f"RBEND '{d['name']}' has ANGLE=0; using straight-element fallback."
@@ -940,8 +1041,12 @@ def lattice(
                     if abs(ks) == 0.0 and abs(ksi) > 0.0:
                         # MAD-X derives KS from KSI/L for thick solenoids.
                         ks = ksi / ds
+                    # ImpactX has only the ideal, hard-edge linear solenoid. A
+                    # higher min_model cannot be honored here and warns once.
                     impactx_beamline.append(
-                        elements.Sol(
+                        build(
+                            "SOLENOID",
+                            {"linear": elements.Sol},
                             name=d["name"],
                             ds=ds,
                             ks=ks,
@@ -1047,7 +1152,7 @@ def lattice(
                             f"DIPEDGE '{d['name']}' attribute 'he' is not translated; using simplified model."
                         )
                     impactx_beamline.append(
-                        elements.DipEdge(
+                        make_dipedge(
                             name=d["name"],
                             psi=d.get("e1", 0.0),
                             rc=1.0 / h,
@@ -1055,7 +1160,7 @@ def lattice(
                             g=2.0 * d.get("hgap", 0.0),
                             K2=d.get("fint", 0.0),
                             location=location,
-                            rotation=d.get("tilt", 0.0) * rad_to_deg,
+                            tilt_degree=d.get("tilt", 0.0) * rad_to_deg,
                         )
                     )
             elif d["type"] in ("kicker", "tkicker"):
@@ -1153,9 +1258,7 @@ def lattice(
                 # ignore them here.
                 if d.get("l", 0.0) > 0:
                     impactx_beamline.append(
-                        elements.Drift(
-                            name=d["name"] + "_drift", ds=d["l"], nslice=nslice
-                        )
+                        make_drift(name=d["name"] + "_drift", ds=d["l"])
                     )
                 impactx_beamline.append(
                     elements.BeamMonitor(name=d["name"], backend="h5")
@@ -1166,6 +1269,8 @@ def lattice(
                 k2s = d.get("k2s", 0.0)
                 tilt_degree = d.get("tilt", 0.0) * rad_to_deg
                 if ds > 0:
+                    # ImpactX has no thick linear or paraxial sextupole: already
+                    # the exact tier, min_model cannot raise it.
                     impactx_beamline.append(
                         elements.ExactMultipole(
                             name=d["name"],
@@ -1188,6 +1293,8 @@ def lattice(
                 k3s = d.get("k3s", 0.0)
                 tilt_degree = d.get("tilt", 0.0) * rad_to_deg
                 if ds > 0:
+                    # ImpactX has no thick linear or paraxial octupole: already
+                    # the exact tier, min_model cannot raise it.
                     impactx_beamline.append(
                         elements.ExactMultipole(
                             name=d["name"],
@@ -1245,19 +1352,13 @@ def lattice(
                     # lattice as a Drift (if L>0) or Marker rather than silently
                     # dropping it.
                     if ds > 0.0:
-                        impactx_beamline.append(
-                            elements.Drift(name=d["name"], ds=ds, nslice=nslice)
-                        )
+                        impactx_beamline.append(make_drift(name=d["name"], ds=ds))
                     else:
                         impactx_beamline.append(elements.Marker(name=d["name"]))
                 else:
                     if ds > 0.0:
                         impactx_beamline.append(
-                            elements.Drift(
-                                name=d["name"] + "_drift_in",
-                                ds=0.5 * ds,
-                                nslice=nslice,
-                            )
+                            make_drift(name=d["name"] + "_drift_in", ds=0.5 * ds)
                         )
                     for order, kn, ks in kick_components:
                         impactx_beamline.append(
@@ -1274,11 +1375,7 @@ def lattice(
                         )
                     if ds > 0.0:
                         impactx_beamline.append(
-                            elements.Drift(
-                                name=d["name"] + "_drift_out",
-                                ds=0.5 * ds,
-                                nslice=nslice,
-                            )
+                            make_drift(name=d["name"] + "_drift_out", ds=0.5 * ds)
                         )
             elif d["type"] == "nllens":
                 if abs(d.get("cnll", 0.0)) == 0.0:
@@ -1407,13 +1504,15 @@ def lattice(
     return impactx_beamline
 
 
-def read_lattice(madx_file, nslice=1, *, line=None, sequence=None):
+def read_lattice(madx_file, nslice=1, *, line=None, sequence=None, min_model="linear"):
     """
     Function that reads elements from a MAD-X file into a list of ImpactX.KnownElements
     :param madx_file: file name to MAD-X file with beamline elements
     :param nslice: number of ds slices per element
     :param line: explicit MAD-X LINE name to expand when no USE command is present
     :param sequence: explicit MAD-X SEQUENCE/PERIOD name to expand
+    :param min_model: lowest ImpactX element model tier to translate into
+        ("linear", "paraxial" or "exact"), see :py:func:`lattice`
     :return: list of ImpactX.KnownElements
     """
     madx = MADXParser()
@@ -1450,6 +1549,7 @@ def read_lattice(madx_file, nslice=1, *, line=None, sequence=None):
         options=options,
         ref_mass_MeV=ref_mass_MeV,
         bv=bv,
+        min_model=min_model,
     )
 
 

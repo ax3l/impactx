@@ -12,6 +12,8 @@ import weakref
 
 from impactx import Config, elements
 
+from ..element_models import DRIFT_MODEL_CLASSES, tier_of_class, validate_model
+
 # All live FilteredElementsList views for a lattice (WeakKeyDictionary: key is KnownElementsList).
 _filtered_views_by_lattice: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 _filtered_views_by_lattice.__repr__ = lambda: (
@@ -23,35 +25,18 @@ FILTERED_ELEMENTS_LIST_INVALID_MSG = (
     "call select() again on the lattice."
 )
 
-# Drift implementation used by ``replace_with_drifts`` for ``model=`` (except ``"match"``).
-# ``model="match"`` picks the same key from the replaced element's class name (see
-# ``_model_key_from_element_typename``).
-_DRIFT_MODEL_CLASSES: dict[str, type] = {
-    "linear": elements.Drift,
-    "paraxial": elements.ChrDrift,
-    "exact": elements.ExactDrift,
-}
-
-
-def _model_key_from_element_typename(type_name: str) -> str:
-    """Return the drift-model key for an element class name (linear / paraxial / exact)."""
-    if type_name.startswith("Exact"):
-        return "exact"
-    if type_name.startswith("Chr"):
-        return "paraxial"
-    return "linear"
-
 
 def _drift_class_for_replace_with_drifts(model: str, old_el) -> type:
     """Map ``model`` and ``old_el`` to the Drift / ChrDrift / ExactDrift class to insert.
 
-    For ``model=="match"``, the class follows ``_model_key_from_element_typename``; otherwise
-    ``model`` must already be validated against ``_DRIFT_MODEL_CLASSES``."""
+    For ``model=="match"``, the class follows the replaced element's own tier (see
+    ``impactx.element_models.tier_of_class``). Otherwise ``model`` must already be
+    validated against :data:`impactx.element_models.MODEL_TIERS`."""
     if model == "match":
-        key = _model_key_from_element_typename(type(old_el).__name__)
+        key = tier_of_class(type(old_el).__name__)
     else:
         key = model
-    return _DRIFT_MODEL_CLASSES[key]
+    return DRIFT_MODEL_CLASSES[key]
 
 
 def _commit_lattice_rebuild(original, new_elements) -> None:
@@ -143,8 +128,15 @@ def _make_drift_from_old(
     )
 
 
-def load_file(self, filename, nslice=1):
+def load_file(self, filename, nslice=1, *, min_model="linear"):
     """Load and append a lattice file from MAD-X (.madx) or PALS (e.g., .pals.yaml) formats.
+
+    ``min_model`` raises the lower gate of the element model selection: the reader
+    still picks the cheapest ImpactX element that represents the imported element,
+    but never one below the requested tier (``"linear"``, ``"paraxial"`` or
+    ``"exact"``). Where a tier is not implemented for an element family, the next
+    higher one is used. Where no model reaches the requested tier at all, as for a
+    solenoid, which only has a linear model, a warning is emitted.
 
     .. warning::
 
@@ -177,13 +169,17 @@ def load_file(self, filename, nslice=1):
         # TODO: Expose explicit MAD-X line/sequence selection in this public API
         # once the user-facing interface is settled. The lower-level translator
         # already supports read_lattice(..., line=..., sequence=...).
-        self.extend(read_lattice(filename, nslice, line=None, sequence=None))
+        self.extend(
+            read_lattice(
+                filename, nslice, line=None, sequence=None, min_model=min_model
+            )
+        )
         return
 
     elif extension_inner == ".pals":
         from pals import load as load_pals_file
 
-        self.from_pals(load_pals_file(filename), nslice)
+        self.from_pals(load_pals_file(filename), nslice, min_model=min_model)
         return
 
     raise RuntimeError(
@@ -191,14 +187,16 @@ def load_file(self, filename, nslice=1):
     )
 
 
-def from_pals(self, pals_beamline, nslice=1):
+def from_pals(self, pals_beamline, nslice=1, *, min_model="linear"):
     """Load and append a lattice from a Particle Accelerator Lattice Standard (PALS) object.
+
+    ``min_model`` is the element model floor, see :py:func:`load_file`.
 
     https://github.com/campa-consortium/pals-python
     """
     from ..pals_to_impactx import read_lattice
 
-    self.extend(read_lattice(pals_beamline, nslice))
+    self.extend(read_lattice(pals_beamline, nslice, min_model=min_model))
 
 
 class FilteredElementsList:
@@ -379,10 +377,7 @@ class FilteredElementsList:
             _invalidate_all_registered_views(original)
             return FilteredElementsList(original, [])
 
-        if model != "match" and model not in _DRIFT_MODEL_CLASSES:
-            raise ValueError(
-                f"model must be 'match' or one of {sorted(_DRIFT_MODEL_CLASSES)}, got {model!r}"
-            )
+        validate_model(model, argument="model", extra_values=("match",))
 
         n = len(original)
         idx_set = set(indices)
