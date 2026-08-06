@@ -1266,7 +1266,11 @@ void init_elements(py::module& m)
         )
         .def_property("mapsteps",
             [](ExactMultipole & exact_multipole) { return exact_multipole.m_mapsteps; },
-            [](ExactMultipole & exact_multipole, int mapsteps) { exact_multipole.m_mapsteps = mapsteps; },
+            [](ExactMultipole & exact_multipole, int mapsteps) {
+                if (mapsteps <= 0)
+                    throw std::invalid_argument("ExactMultipole: mapsteps must be > 0!");
+                exact_multipole.m_mapsteps = mapsteps;
+            },
             "number of integration steps per slice used for particle push in the applied fields"
         )
     ;
@@ -1341,7 +1345,11 @@ void init_elements(py::module& m)
         )
         .def_property("mapsteps",
             [](ExactCFbend & exact_cfbend) { return exact_cfbend.m_mapsteps; },
-            [](ExactCFbend & exact_cfbend, int mapsteps) { exact_cfbend.m_mapsteps = mapsteps; },
+            [](ExactCFbend & exact_cfbend, int mapsteps) {
+                if (mapsteps <= 0)
+                    throw std::invalid_argument("ExactCFbend: mapsteps must be > 0!");
+                exact_cfbend.m_mapsteps = mapsteps;
+            },
             "number of integration steps per slice used for particle push in the applied fields"
         )
     ;
@@ -1415,7 +1423,11 @@ void init_elements(py::module& m)
         )
         .def_property("mapsteps",
             [](ExactQuad & exact_quad) { return exact_quad.m_mapsteps; },
-            [](ExactQuad & exact_quad, int mapsteps) { exact_quad.m_mapsteps = mapsteps; },
+            [](ExactQuad & exact_quad, int mapsteps) {
+                if (mapsteps <= 0)
+                    throw std::invalid_argument("ExactQuad: mapsteps must be > 0!");
+                exact_quad.m_mapsteps = mapsteps;
+            },
             "number of integration steps per slice used for particle push in the applied fields"
         )
     ;
@@ -2067,7 +2079,11 @@ void init_elements(py::module& m)
         // TODO sin_coefficients
         .def_property("mapsteps",
             [](RFCavity & rfc) { return rfc.m_mapsteps; },
-            [](RFCavity & rfc, int mapsteps) { rfc.m_mapsteps = mapsteps; },
+            [](RFCavity & rfc, int mapsteps) {
+                if (mapsteps <= 0)
+                    throw std::invalid_argument("RFCavity: mapsteps must be > 0!");
+                rfc.m_mapsteps = mapsteps;
+            },
             "number of integration steps per slice used for map and reference particle push in applied fields"
         )
         .def_property_readonly("map",
@@ -2391,7 +2407,11 @@ void init_elements(py::module& m)
         )
         .def_property("mapsteps",
             [](SoftSolenoid & soft_sol) { return soft_sol.m_mapsteps; },
-            [](SoftSolenoid & soft_sol, int mapsteps) { soft_sol.m_mapsteps = mapsteps; },
+            [](SoftSolenoid & soft_sol, int mapsteps) {
+                if (mapsteps <= 0)
+                    throw std::invalid_argument("SoftSolenoid: mapsteps must be > 0!");
+                soft_sol.m_mapsteps = mapsteps;
+            },
             "number of integration steps per slice used for map and reference particle push in applied fields"
         )
         .def_property_readonly("map",
@@ -2653,7 +2673,11 @@ void init_elements(py::module& m)
         // TODO sin_coefficients
         .def_property("mapsteps",
             [](SoftQuadrupole & soft_quad) { return soft_quad.m_mapsteps; },
-            [](SoftQuadrupole & soft_quad, int mapsteps) { soft_quad.m_mapsteps = mapsteps; },
+            [](SoftQuadrupole & soft_quad, int mapsteps) {
+                if (mapsteps <= 0)
+                    throw std::invalid_argument("SoftQuadrupole: mapsteps must be > 0!");
+                soft_quad.m_mapsteps = mapsteps;
+            },
             "number of integration steps per slice used for map and reference particle push in applied fields"
         )
         .def_property_readonly("map",

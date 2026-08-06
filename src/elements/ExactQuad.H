@@ -95,6 +95,8 @@ namespace impactx::elements
           PipeAperture(aperture_x, aperture_y),
           m_k(k),m_unit(unit),m_int_order(int_order),m_mapsteps(mapsteps)
         {
+            if (m_mapsteps <= 0)
+                throw std::invalid_argument("ExactQuad: mapsteps must be > 0!");
         }
 
         /** Reverse the element (negate ds) */

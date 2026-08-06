@@ -118,6 +118,9 @@ namespace impactx::elements
           m_unit(unit), m_int_order(int_order), m_mapsteps(mapsteps),
           m_id(DynamicData::allocate_id())
         {
+            if (m_mapsteps <= 0)
+                throw std::invalid_argument("ExactMultipole: mapsteps must be > 0!");
+
             m_ncoef = int(k_normal.size());
             if (m_ncoef != int(k_skew.size()))
                 throw std::runtime_error("ExactMultipole: normal and skew coefficient arrays must have same length!");

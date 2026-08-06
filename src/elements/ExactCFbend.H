@@ -117,6 +117,9 @@ namespace impactx::elements
             if (m_int_order != 2 && m_int_order != 4 && m_int_order != 6)
                 throw std::runtime_error("ExactCFbend: The order used for symplectic integration must be 2, 4 or 6.");
 
+            if (m_mapsteps <= 0)
+                throw std::invalid_argument("ExactCFbend: mapsteps must be > 0!");
+
             m_ncoef = int(k_normal.size());
             if (m_ncoef != int(k_skew.size()))
                 throw std::runtime_error("ExactCFbend: normal and skew coefficient arrays must have same length!");

@@ -161,6 +161,9 @@ namespace impactx::elements
             m_gscale(gscale), m_mapsteps(mapsteps),
             m_id(DynamicData::allocate_id())
         {
+            if (m_mapsteps <= 0)
+                throw std::invalid_argument("SoftQuadrupole: mapsteps must be > 0!");
+
             m_ncoef = int(cos_coef.size());
             if (m_ncoef != int(sin_coef.size()))
                 throw std::runtime_error("SoftQuadrupole: cos and sin coefficients must have same length!");

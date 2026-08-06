@@ -172,6 +172,9 @@ namespace impactx::elements
             m_bscale(bscale), m_unit(unit), m_mapsteps(mapsteps),
             m_id(DynamicData::allocate_id())
         {
+            if (m_mapsteps <= 0)
+                throw std::invalid_argument("SoftSolenoid: mapsteps must be > 0!");
+
             m_ncoef = int(cos_coef.size());
             if (m_ncoef != int(sin_coef.size()))
                 throw std::runtime_error("SoftSolenoid: cos and sin coefficients must have same length!");
