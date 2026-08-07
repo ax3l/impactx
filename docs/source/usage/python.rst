@@ -1015,7 +1015,7 @@ This module provides elements and methods for the accelerator lattice.
       starts out with at least the requested level of physical fidelity
       (see :ref:`theory-assumptions`):
 
-      * ``"linear"`` (default) reproduces the historic behavior
+      * ``"linear"`` (default) uses the linear model
       * ``"paraxial"`` requires at least the chromatic ``Chr*`` models
       * ``"exact"`` requires at least the exact-Hamiltonian ``Exact*`` models
 
@@ -1066,7 +1066,7 @@ This module provides elements and methods for the accelerator lattice.
       the same at every floor.
       Their *length*, however, is carried by drifts that the reader adds around
       that kick, and those follow ``min_model`` like any other drift.
-      A finite-length ``RFCAVITY``, for example, becomes
+      A finite-length ``RFCAVITY`` is a thin kick model, for example, becomes
       ``ExactDrift`` + ``ShortRF`` + ``ExactDrift`` at ``min_model="exact"``.
       The same applies to the drifts emitted for ``COLLIMATOR``, ``INSTRUMENT``,
       ``PLACEHOLDER`` and for a ``MONITOR`` with ``L > 0``.
