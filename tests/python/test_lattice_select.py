@@ -1417,3 +1417,26 @@ def test_set_rolls_back_earlier_elements_too():
         lattice.set(psi=0.3, R=-2.0)
 
     assert [e.psi for e in lattice] == [0.1, 0.1]
+
+
+def test_lattice_stores_copies_not_references():
+    """Documented container semantics that `set()` inherits.
+
+    `append` copies, so the lattice element and the object handed to `append`
+    are independent. A `Programmable` callback closing over the original will
+    therefore not see `ds`/`nslice` written through the lattice. Tracked in
+    https://github.com/BLAST-ImpactX/impactx/pull/1381
+    """
+    original = elements.Drift(ds=1.0, name="d")
+    lattice = elements.KnownElementsList()
+    lattice.append(original)
+
+    assert lattice[0] is not original
+    assert lattice[0] is lattice[0]  # but stable within the lattice
+
+    lattice.set(ds=7.0)
+    assert lattice[0].ds == 7.0
+    assert original.ds == 1.0  # unchanged
+
+    original.ds = 9.0
+    assert lattice[0].ds == 7.0  # and not the reverse either

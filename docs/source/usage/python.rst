@@ -1005,6 +1005,22 @@ This module provides elements and methods for the accelerator lattice.
 
       Add a single element to the list.
 
+   .. note::
+
+      ``append`` and ``extend`` store a **copy** of the element. Indexing the
+      lattice afterwards returns that copy, not the object you passed in, and the
+      two are independent from then on: ``lattice[0].ds = 7.0`` does not change
+      the original, nor the reverse.
+
+      This matters for :py:class:`~impactx.elements.Programmable`, whose
+      callbacks usually close over the object you constructed while tracking
+      drives the lattice's copy. Changing ``ds`` or ``nslice`` on one side only
+      is enough to make the two disagree. Set such values before appending, or
+      re-fetch the element from the lattice and change it there.
+
+      Making ``sim.lattice`` hold references instead of copies is tracked in
+      `PR #1381 <https://github.com/BLAST-ImpactX/impactx/pull/1381>`__.
+
    .. py:method:: load_file(filename, nslice=1)
 
       Load and append a lattice file from MAD-X (.madx) or PALS (e.g., .pals.yaml) formats.
@@ -1086,6 +1102,9 @@ This module provides elements and methods for the accelerator lattice.
 
       Works for any settable property (``nslice``, ``int_order``, ``mapsteps``,
       ``ds``, ``k``, ``rotation``, ``aperture_x``, ...).
+
+      This writes to the elements held by the lattice, which are copies of the
+      ones that were appended; see the note on :py:meth:`~append`.
 
       By default this **raises** ``AttributeError`` if any element cannot take one
       of the given properties, naming the property and the offending element
