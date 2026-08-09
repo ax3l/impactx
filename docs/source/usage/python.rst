@@ -1085,17 +1085,19 @@ This module provides elements and methods for the accelerator lattice.
       Assign element properties in bulk, on every element of the lattice.
 
       Works for any settable property (``nslice``, ``int_order``, ``mapsteps``,
-      ``ds``, ``k``, ``rotation``, ``aperture_x``, ...), so no new API is needed
-      as elements gain knobs.
+      ``ds``, ``k``, ``rotation``, ``aperture_x``, ...).
 
       By default this **raises** ``AttributeError`` if any element cannot take one
       of the given properties, naming the property and the offending element
       kinds. Pass ``skip=True`` to set only where applicable, or narrow the
       selection first with ``select(has=...)``.
 
-      Assignment is all-or-nothing: values are checked, then capability is checked
-      across the whole lattice, and only then is anything written. A rejected
-      value or an unsettable element leaves every element untouched.
+      Assignment is all-or-nothing. Values are checked, then capability is checked
+      across the whole lattice, and only then is anything written. Should a
+      property setter still reject a value at that point, every write already made
+      is undone in reverse order. A rejected value or an unsettable element
+      therefore leaves every element exactly as it was, whichever property or
+      element the rejection came from.
 
       .. note::
 

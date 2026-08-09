@@ -515,9 +515,19 @@ _SET_VALIDATORS = {
 def _set_on(elements_iter, kwargs, skip):
     """Assign ``kwargs`` to elements, in an all-or-nothing manner.
 
-    Values are validated first, then capability is checked across the whole
-    selection, and only then is anything written. A failure therefore leaves
-    every element untouched.
+    Values are validated, then capability is checked across the whole selection,
+    and only then is anything written. Because a property setter can still reject
+    a value that ``_SET_VALIDATORS`` does not cover (``DipEdge.R``, enum strings,
+    type conversions), each write is journaled and the journal is unwound in
+    reverse if a later write raises. Any failure therefore leaves every element
+    exactly as it was.
+
+    Rollback is preferred over validating on throwaway clones: reconstructing an
+    element allocates a new entry in its ``GPUDataRegistry``, and that registry is
+    only ever emptied by ``clear()``, which nothing calls. Cloning to validate
+    would therefore leak roughly 1.7 kB per coefficient-carrying element on every
+    call. Restoring a value that was valid moments ago cannot fail, so unwinding
+    is safe.
 
     Args:
         elements_iter: Iterable of elements (references into a lattice)
@@ -532,7 +542,7 @@ def _set_on(elements_iter, kwargs, skip):
         ValueError: If a value is invalid for a known property
         AttributeError: If skip is False and some element cannot take a property
     """
-    # 1) values are element-independent, so check them once, up front
+    # 1) values are element-independent, so check the known knobs once, up front
     for attr, value in kwargs.items():
         check = _SET_VALIDATORS.get(attr)
         if check is not None and not check[0](value):
@@ -557,16 +567,24 @@ def _set_on(elements_iter, kwargs, skip):
                 f"select(has=...), or pass skip=True to set only where applicable."
             )
 
-    # 3) apply
+    # 3) apply, journaling every write so a late rejection can be undone
+    journal = []  # (element, attr, previous value), in the order applied
     changed = 0
-    for element in element_list:
-        touched = False
-        for attr, value in kwargs.items():
-            if _is_settable(element, attr):
-                setattr(element, attr, value)
-                touched = True
-        if touched:
-            changed += 1
+    try:
+        for element in element_list:
+            touched = False
+            for attr, value in kwargs.items():
+                if _is_settable(element, attr):
+                    journal.append((element, attr, getattr(element, attr)))
+                    setattr(element, attr, value)
+                    touched = True
+            if touched:
+                changed += 1
+    except Exception:
+        for element, attr, previous in reversed(journal):
+            setattr(element, attr, previous)
+        raise
+
     return changed
 
 

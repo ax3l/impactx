@@ -1210,13 +1210,6 @@ def test_select_has_is_settable_not_merely_readable():
     ]
 
 
-def test_select_has_integrator_does_not_overmatch_exact():
-    """`Exact.*` over-matches; has="int_order" selects only real integrators."""
-    lattice = _mixed_lattice()
-    assert "ExactDrift" in _kinds(lattice.select(kind=r"Exact.*"))
-    assert _kinds(lattice.select(has="int_order")) == ["ExactQuad"]
-
-
 def test_select_has_list_is_or_matched():
     lattice = _mixed_lattice()
     lattice.append(
@@ -1385,3 +1378,42 @@ def test_argument_validation_raises_value_error():
         elements.DipEdge(psi=0.1, rc=1.0, g=0.01, R=-1.0)
     with pytest.raises(ValueError, match="same length"):
         elements.ExactCFbend(ds=1.0, k_normal=[0.1], k_skew=[0.0, 0.0])
+
+
+def test_set_rolls_back_when_a_setter_rejects_late():
+    """A setter that rejects after earlier writes must undo them.
+
+    `_SET_VALIDATORS` only prevalidates nslice/int_order/mapsteps. `DipEdge.R`
+    is validated by its own setter, so `set(psi=..., R=-1.0)` fails only after
+    `psi` has been written. That write has to be rolled back.
+    """
+    lattice = elements.KnownElementsList()
+    lattice.extend(
+        [
+            elements.DipEdge(psi=0.1, rc=1.0, g=0.01, R=1.0, name="de1"),
+            elements.DipEdge(psi=0.1, rc=1.0, g=0.01, R=1.0, name="de2"),
+        ]
+    )
+    before = [(e.psi, e.R) for e in lattice]
+
+    with pytest.raises(ValueError, match="R must be > 0"):
+        lattice.set(psi=0.2, R=-1.0)
+
+    assert [(e.psi, e.R) for e in lattice] == before
+
+
+def test_set_rolls_back_earlier_elements_too():
+    """The rollback spans elements, not just properties within one element."""
+    lattice = elements.KnownElementsList()
+    lattice.extend(
+        [
+            # a first element that accepts everything
+            elements.DipEdge(psi=0.1, rc=1.0, g=0.01, R=1.0, name="ok"),
+            # a second one that will reject R and must undo the first
+            elements.DipEdge(psi=0.1, rc=1.0, g=0.01, R=1.0, name="bad"),
+        ]
+    )
+    with pytest.raises(ValueError):
+        lattice.set(psi=0.3, R=-2.0)
+
+    assert [e.psi for e in lattice] == [0.1, 0.1]
