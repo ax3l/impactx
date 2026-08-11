@@ -11,7 +11,7 @@
 #define IMPACTX_PUSH_ALL_H
 
 #include "particles/ImpactXParticleContainer.H"
-#include "elements/mixin/snapshot.H"
+#include "elements/helper/Snapshot.H"
 
 #include <AMReX_BLProfiler.H>
 

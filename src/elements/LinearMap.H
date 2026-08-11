@@ -11,7 +11,7 @@
 #define IMPACTX_ELEMENT_LINEAR_MAP_H
 
 #include "particles/ImpactXParticleContainer.H"
-#include "Element.H"
+#include "mixin/gpuelement.H"
 #include "mixin/alignment.H"
 #include "mixin/beamoptic.H"
 #include "mixin/lineartransport.H"
@@ -29,9 +29,9 @@
 
 namespace impactx::elements
 {
-    struct LinearMapPhysics
-    : public mixin::BeamOptic<LinearMapPhysics>,
-      public mixin::LinearTransport<LinearMapPhysics>,
+    struct LinearMapGPU
+    : public mixin::BeamOptic<LinearMapGPU>,
+      public mixin::LinearTransport<LinearMapGPU>,
       public mixin::Alignment,
       public mixin::SpinTransport,
       public mixin::NoFinalize,
@@ -53,7 +53,7 @@ namespace impactx::elements
          * @param dy vertical translation error in m
          * @param rotation_degree rotation error in the transverse plane [degrees]
          */
-        LinearMapPhysics (
+        LinearMapGPU (
             Map6x6 const & R,
             amrex::ParticleReal ds = DEFAULT_ds,
             amrex::ParticleReal dx = DEFAULT_dx,
@@ -287,11 +287,11 @@ namespace impactx::elements
         amrex::ParticleReal m_ds;  // finite ds allowed for bookkeeping, but we do not allow slicing
     };
 
-    /** LinearMap: physics plus common host-only metadata */
-    using LinearMap = Element<LinearMapPhysics>;
+    /** LinearMap: GPU state plus common host-only metadata */
+    using LinearMap = Element<LinearMapGPU>;
 
 } // namespace impactx
 
-IMPACTX_PUSH_EXTERN_TEMPLATE(impactx::elements::LinearMapPhysics)
+IMPACTX_PUSH_EXTERN_TEMPLATE(impactx::elements::LinearMapGPU)
 
 #endif // IMPACTX_ELEMENT_LINEAR_MAP_H

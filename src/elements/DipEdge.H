@@ -11,7 +11,7 @@
 #define IMPACTX_DIPEDGE_H
 
 #include "particles/ImpactXParticleContainer.H"
-#include "Element.H"
+#include "mixin/gpuelement.H"
 #include "mixin/alignment.H"
 #include "mixin/beamoptic.H"
 #include "mixin/thin.H"
@@ -32,9 +32,9 @@
 
 namespace impactx::elements
 {
-    struct DipEdgePhysics
-    : public mixin::BeamOptic<DipEdgePhysics>,
-      public mixin::LinearTransport<DipEdgePhysics>,
+    struct DipEdgeGPU
+    : public mixin::BeamOptic<DipEdgeGPU>,
+      public mixin::LinearTransport<DipEdgeGPU>,
       public mixin::Thin,
       public mixin::Alignment,
       public mixin::SpinTransport,
@@ -94,7 +94,7 @@ namespace impactx::elements
          * @param dy vertical translation error in m
          * @param rotation_degree rotation error in the transverse plane [degrees]
          */
-        DipEdgePhysics (
+        DipEdgeGPU (
             amrex::ParticleReal psi,
             amrex::ParticleReal rc,
             amrex::ParticleReal g,
@@ -462,11 +462,11 @@ namespace impactx::elements
         amrex::ParticleReal m_c11_times_1plusdelta, m_c12_times_1plusdelta;
     };
 
-    /** DipEdge: physics plus common host-only metadata */
-    using DipEdge = Element<DipEdgePhysics>;
+    /** DipEdge: GPU state plus common host-only metadata */
+    using DipEdge = Element<DipEdgeGPU>;
 
 } // namespace impactx
 
-IMPACTX_PUSH_EXTERN_TEMPLATE(impactx::elements::DipEdgePhysics)
+IMPACTX_PUSH_EXTERN_TEMPLATE(impactx::elements::DipEdgeGPU)
 
 #endif // IMPACTX_DIPEDGE_H

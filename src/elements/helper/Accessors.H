@@ -7,12 +7,12 @@
  * Authors: Axel Huebl, Edoardo Zoni, Chad Mitchell
  * License: BSD-3-Clause-LBNL
  */
-#ifndef IMPACTX_ELEMENTS_MIXIN_ACCESSORS_H
-#define IMPACTX_ELEMENTS_MIXIN_ACCESSORS_H
+#ifndef IMPACTX_ELEMENTS_HELPER_ACCESSORS_H
+#define IMPACTX_ELEMENTS_HELPER_ACCESSORS_H
 
-#include "traits.H"
+#include "elements/mixin/traits.H"
 
-#include "elements/Handle.H"
+#include "Handle.H"
 
 #include <AMReX_REAL.H>
 
@@ -315,4 +315,4 @@ namespace impactx::elements
 
 } // namespace impactx::elements
 
-#endif // IMPACTX_ELEMENTS_MIXIN_ACCESSORS_H
+#endif // IMPACTX_ELEMENTS_HELPER_ACCESSORS_H

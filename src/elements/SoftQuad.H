@@ -11,11 +11,11 @@
 #define IMPACTX_SOFTQUAD_H
 
 #include "particles/ImpactXParticleContainer.H"
-#include "Element.H"
+#include "mixin/gpuelement.H"
 #include "particles/integrators/Integrators.H"
 #include "mixin/alignment.H"
 #include "mixin/beamoptic.H"
-#include "mixin/devicebackedarrays.H"
+#include "helper/ArrayValidation.H"
 #include "mixin/lineartransport.H"
 #include "mixin/pipeaperture.H"
 #include "mixin/thick.H"
@@ -108,8 +108,8 @@ namespace impactx::elements
     /** The prepared, resource-free execution snapshot of a soft-edge quadrupole.
      *
      * This is what a particle-push kernel is handed. It owns nothing: the coefficient
-     * arrays reach it as a bounded, non-owning @see mixin::DualArrayView, resolved to
-     * host or device storage by @see SoftQuadrupolePhysics::make_particle_pusher for the
+     * arrays reach it as bounded, non-owning pointers, resolved to
+     * host or device storage by @see SoftQuadrupoleGPU::make_particle_pusher for the
      * lifetime of one element slice.
      *
      * It deliberately derives @see mixin::ParticlePush rather than @see mixin::BeamOptic,
@@ -293,9 +293,9 @@ namespace impactx::elements
             // The coefficients were already resolved to the right execution space when
             // this snapshot was prepared, so there is no host/device branch here and only
             // one copy of the field expansion below.
-            amrex::ParticleReal const * cos_data = m_coefficients.first;
-            amrex::ParticleReal const * sin_data = m_coefficients.second;
-            int const ncoef = m_coefficients.size;
+            amrex::ParticleReal const * cos_data = m_cos_coefficients;
+            amrex::ParticleReal const * sin_data = m_sin_coefficients;
+            int const ncoef = m_ncoef;
 
             // specify constants
             using ablastr::constant::math::pi;
@@ -437,9 +437,12 @@ namespace impactx::elements
         /** Coefficients resolved to this snapshot's execution space.
          *
          * Non-owning and valid only for the launch this snapshot was prepared for.
-         * @see SoftQuadrupolePhysics, which owns the arrays.
+         * @see SoftQuadrupoleGPU, which owns the arrays.
          */
-        mixin::DualArrayView m_coefficients{};
+        //! non-owning, device-copyable; valid for the launch it was prepared for
+        amrex::ParticleReal const * m_cos_coefficients = nullptr;
+        amrex::ParticleReal const * m_sin_coefficients = nullptr;
+        int m_ncoef = 0;
 
 
         // Reference-trajectory linearization around the reference particle.
@@ -458,9 +461,9 @@ namespace impactx::elements
      * pushes run against @see SoftQuadrupoleCore, which this hands out already resolved to
      * the right execution space.
      */
-    struct SoftQuadrupolePhysics
-    : public mixin::BeamOptic<SoftQuadrupolePhysics>,
-      public mixin::LinearTransport<SoftQuadrupolePhysics>,
+    struct SoftQuadrupoleGPU
+    : public mixin::BeamOptic<SoftQuadrupoleGPU>,
+      public mixin::LinearTransport<SoftQuadrupoleGPU>,
       public SoftQuadrupoleCore
     {
         /** A soft-edge quadrupole
@@ -478,7 +481,7 @@ namespace impactx::elements
          *        map and reference particle push in applied fields
          * @param nslice number of slices used for the application of space charge
          */
-        SoftQuadrupolePhysics (
+        SoftQuadrupoleGPU (
             amrex::ParticleReal ds,
             amrex::ParticleReal gscale,
             std::vector<amrex::ParticleReal> cos_coef,
@@ -492,14 +495,16 @@ namespace impactx::elements
             int nslice = DEFAULT_nslice
         )
           : SoftQuadrupoleCore(ds, gscale, dx, dy, rotation_degree, aperture_x, aperture_y, mapsteps, nslice),
-            m_coefficients_data(std::move(cos_coef), std::move(sin_coef), "SoftQuadrupole: cos and sin coefficient", 1)
+            m_coefficients{std::move(cos_coef), std::move(sin_coef)}
         {
+            require_array_pair(m_coefficients.cos, m_coefficients.sin,
+                               "SoftQuadrupole: cos and sin coefficient", 1);
             if (m_mapsteps <= 0)
                 throw std::invalid_argument("SoftQuadrupole: mapsteps must be > 0!");
         }
 
         /** Push all particles */
-        using mixin::BeamOptic<SoftQuadrupolePhysics>::operator();
+        using mixin::BeamOptic<SoftQuadrupoleGPU>::operator();
 
         /** This pushes the reference particle.
          *
@@ -515,7 +520,9 @@ namespace impactx::elements
             // local to this call, so the canonical element never caches a pointer into
             // storage that a later mutation could replace.
             SoftQuadrupoleCore core = *this;
-            core.m_coefficients = m_coefficients_data.host_view();
+            core.m_cos_coefficients = m_coefficients.cos.host_const().data();
+            core.m_sin_coefficients = m_coefficients.sin.host_const().data();
+            core.m_ncoef = static_cast<int>(m_coefficients.cos.host_const().size());
 
             // assign input reference particle values
             amrex::ParticleReal const x = refpart.x;
@@ -607,27 +614,29 @@ namespace impactx::elements
         {
             SoftQuadrupoleCore core = *this;
             core.Alignment::compute_constants(refpart);
-            core.m_coefficients = m_coefficients_data.device_view();
+            core.m_cos_coefficients = m_coefficients.cos.device_const().data();
+            core.m_sin_coefficients = m_coefficients.sin.device_const().data();
+            core.m_ncoef = static_cast<int>(m_coefficients.cos.host_const().size());
             return core;
         }
 
         /** Cosine coefficients, e.g. for serialization */
         [[nodiscard]] std::vector<amrex::ParticleReal> cos_coefficients () const
         {
-            return m_coefficients_data.first_host();
+            return m_coefficients.cos.host_const();
         }
 
         /** Sine coefficients, e.g. for serialization */
         [[nodiscard]] std::vector<amrex::ParticleReal> sin_coefficients () const
         {
-            return m_coefficients_data.second_host();
+            return m_coefficients.sin.host_const();
         }
 
         /** Replace both arrays at once
          *
-         * The two are validated together and committed as one step, so a rejected update
-         * leaves the element as it was. They are always the same length, which is why
-         * this takes both rather than offering to change one of them alone.
+         * The two are validated before either is stored, so a rejected update leaves the
+         * element as it was. They are always the same length, which is why this takes
+         * both rather than offering to change one of them alone.
          *
          * @param first the new cosine values
          * @param second the new sine values
@@ -637,24 +646,28 @@ namespace impactx::elements
             std::vector<amrex::ParticleReal> second
         )
         {
-            m_coefficients_data.commit(std::move(first), std::move(second), "SoftQuadrupole: cos and sin coefficient", 1);
+            require_array_pair(first, second, "SoftQuadrupole: cos and sin coefficient", 1);
+            m_coefficients.cos.host() = std::move(first);
+            m_coefficients.sin.host() = std::move(second);
         }
 
         /** Release device storage; host configuration survives for reuse */
         void finalize ()
         {
-            m_coefficients_data.release_gpu();
+            m_coefficients.cos.release_gpu();
+            m_coefficients.sin.release_gpu();
         }
 
         //! the coefficient arrays, owned by this element
-        mixin::DeviceBackedArrays m_coefficients_data;
+        //! the arrays this element owns, mirrored to the device on demand
+        QuadrupoleFourierCoefficients m_coefficients;
     };
 
-    /** SoftQuadrupole: physics plus common host-only metadata */
-    using SoftQuadrupole = Element<SoftQuadrupolePhysics>;
+    /** SoftQuadrupole: GPU state plus common host-only metadata */
+    using SoftQuadrupole = Element<SoftQuadrupoleGPU>;
 
 } // namespace impactx
 
-IMPACTX_PUSH_EXTERN_TEMPLATE(impactx::elements::SoftQuadrupolePhysics)
+IMPACTX_PUSH_EXTERN_TEMPLATE(impactx::elements::SoftQuadrupoleGPU)
 
 #endif // IMPACTX_SOFTQUAD_H

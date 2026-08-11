@@ -25,7 +25,7 @@ namespace impactx::elements::mixin
     /** This is a helper class for lattice elements with a user-defined name
      *
      * A name is host-only metadata: it describes the element to a human, and takes no
-     * part in the physics. It is carried by the public element envelope
+     * part in the computation. It is carried by the public element envelope
      * (@see impactx::elements::Element), which keeps it out of the execution snapshot
      * that is copied into a particle-push kernel.
      *

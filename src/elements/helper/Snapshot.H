@@ -7,11 +7,11 @@
  * Authors: Axel Huebl
  * License: BSD-3-Clause-LBNL
  */
-#ifndef IMPACTX_ELEMENTS_MIXIN_SNAPSHOT_H
-#define IMPACTX_ELEMENTS_MIXIN_SNAPSHOT_H
+#ifndef IMPACTX_ELEMENTS_HELPER_SNAPSHOT_H
+#define IMPACTX_ELEMENTS_HELPER_SNAPSHOT_H
 
-#include "elements/Element.H"
-#include "hostonly.H"
+#include "elements/mixin/gpuelement.H"
+#include "elements/mixin/hostonly.H"
 #include "particles/ReferenceParticle.H"
 
 #include <type_traits>
@@ -20,42 +20,42 @@
 
 namespace impactx::elements
 {
-// Deliberately not called `detail`: see the note in elements/Element.H.
+// Deliberately not called `detail`: see the note in elements/mixin/gpuelement.H.
 namespace snapshot_detail
 {
-    template<typename T_Physics, typename = void>
+    template<typename T_GPU, typename = void>
     struct has_compute_constants : std::false_type {};
 
-    template<typename T_Physics>
+    template<typename T_GPU>
     struct has_compute_constants<
-        T_Physics,
+        T_GPU,
         std::void_t<decltype(
-            std::declval<std::decay_t<T_Physics> &>().compute_constants(std::declval<RefPart const &>())
+            std::declval<std::decay_t<T_GPU> &>().compute_constants(std::declval<RefPart const &>())
         )>
     > : std::true_type {};
 
-    template<typename T_Physics, typename = void>
+    template<typename T_GPU, typename = void>
     struct has_own_pusher : std::false_type {};
 
-    template<typename T_Physics>
+    template<typename T_GPU>
     struct has_own_pusher<
-        T_Physics,
+        T_GPU,
         std::void_t<decltype(
-            std::declval<std::decay_t<T_Physics> const &>().make_particle_pusher(std::declval<RefPart const &>())
+            std::declval<std::decay_t<T_GPU> const &>().make_particle_pusher(std::declval<RefPart const &>())
         )>
     > : std::true_type {};
 
 } // namespace snapshot_detail
 
-    /** Can an execution snapshot be prepared for this physics type?
+    /** Can an execution snapshot be prepared for this GPU type?
      *
      * False for elements whose push is an opaque user callback (Programmable): there is
      * nothing to prepare, and the caller keeps using the element directly.
      */
-    template<typename T_Physics>
+    template<typename T_GPU>
     inline constexpr bool has_particle_pusher_v =
-        snapshot_detail::has_compute_constants<T_Physics>::value ||
-        snapshot_detail::has_own_pusher<T_Physics>::value;
+        snapshot_detail::has_compute_constants<T_GPU>::value ||
+        snapshot_detail::has_own_pusher<T_GPU>::value;
 
     /** Compile-time checks that a type is fit to be copied into a launch closure.
      *
@@ -74,12 +74,12 @@ namespace snapshot_detail
         static_assert(
             !mixin::is_host_only_v<snapshot_type>,
             "An execution snapshot must not carry host-only state (mixin::HostOnly). "
-            "Pass the physics subobject, not the public element: element.physics()."
+            "Pass the GPU subobject, not the public element: element.gpu()."
         );
         static_assert(
             !is_element_envelope_v<snapshot_type>,
             "An execution snapshot must not be a public element envelope. "
-            "Pass the physics subobject instead: element.physics()."
+            "Pass the GPU subobject instead: element.gpu()."
         );
         static_assert(
             std::is_trivially_destructible_v<snapshot_type>,
@@ -100,34 +100,34 @@ namespace snapshot_detail
      * launched, and the result is copied into each tile's launch closure. Particle-push
      * wrappers store the prepared value and execute; they do not prepare.
      *
-     * Ordinary, resource-free physics types are their own snapshot: the returned value is
-     * a prepared copy. The few physics types that own dynamic array resources return a
+     * Ordinary, resource-free GPU types are their own snapshot: the returned value is
+     * a prepared copy. The few GPU types that own dynamic array resources return a
      * separate, resource-free core instead, via their own @c make_particle_pusher member.
      *
-     * @param physics the canonical element physics; not modified
+     * @param gpu the canonical element GPU state; not modified
      * @param ref_part the reference particle, already advanced for this slice
      * @return a prepared, resource-free snapshot
      */
-    template<typename T_Physics>
-    auto make_particle_pusher (T_Physics const & physics, RefPart const & ref_part)
+    template<typename T_GPU>
+    auto make_particle_pusher (T_GPU const & gpu, RefPart const & ref_part)
     {
         static_assert(
-            !mixin::is_host_only_v<T_Physics>,
-            "make_particle_pusher() takes an element's physics, not a type carrying "
-            "host-only state. Use element.physics()."
+            !mixin::is_host_only_v<T_GPU>,
+            "make_particle_pusher() takes an element's GPU state, not a type carrying "
+            "host-only state. Use element.gpu()."
         );
 
-        if constexpr (snapshot_detail::has_own_pusher<T_Physics>::value)
+        if constexpr (snapshot_detail::has_own_pusher<T_GPU>::value)
         {
-            auto pusher = physics.make_particle_pusher(ref_part);
+            auto pusher = gpu.make_particle_pusher(ref_part);
             assert_execution_snapshot<decltype(pusher)>();
             return pusher;
         }
         else
         {
-            T_Physics pusher = physics;
+            T_GPU pusher = gpu;
             pusher.compute_constants(ref_part);
-            assert_execution_snapshot<T_Physics>();
+            assert_execution_snapshot<T_GPU>();
             return pusher;
         }
     }
@@ -135,17 +135,11 @@ namespace snapshot_detail
     /** The public element envelope is deliberately not preparable.
      *
      * It carries host-only metadata, which must never reach a kernel. Unwrap it first:
-     * @c make_particle_pusher(element.physics(), ref_part) .
+     * @c make_particle_pusher(element.gpu(), ref_part) .
      */
-    template<typename T_Physics>
-    auto make_particle_pusher (Element<T_Physics> const &, RefPart const &) = delete;
-
-    /** The prepared pusher type for a given physics type */
-    template<typename T_Physics>
-    using particle_pusher_t = decltype(
-        make_particle_pusher(std::declval<T_Physics const &>(), std::declval<RefPart const &>())
-    );
+    template<typename T_GPU>
+    auto make_particle_pusher (Element<T_GPU> const &, RefPart const &) = delete;
 
 } // namespace impactx::elements
 
-#endif // IMPACTX_ELEMENTS_MIXIN_SNAPSHOT_H
+#endif // IMPACTX_ELEMENTS_HELPER_SNAPSHOT_H

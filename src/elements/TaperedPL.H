@@ -11,7 +11,7 @@
 #define IMPACTX_TAPEREDPL_H
 
 #include "particles/ImpactXParticleContainer.H"
-#include "Element.H"
+#include "mixin/gpuelement.H"
 #include "mixin/alignment.H"
 #include "mixin/beamoptic.H"
 #include "mixin/thin.H"
@@ -29,9 +29,9 @@
 
 namespace impactx::elements
 {
-    struct TaperedPLPhysics
-    : public mixin::BeamOptic<TaperedPLPhysics>,
-      public mixin::LinearTransport<TaperedPLPhysics>,
+    struct TaperedPLGPU
+    : public mixin::BeamOptic<TaperedPLGPU>,
+      public mixin::LinearTransport<TaperedPLGPU>,
       public mixin::Thin,
       public mixin::Alignment,
       public mixin::SpinTransport,
@@ -61,7 +61,7 @@ namespace impactx::elements
          * @param dy vertical translation error in m
          * @param rotation_degree rotation error in the transverse plane [degrees]
          */
-        TaperedPLPhysics (
+        TaperedPLGPU (
             amrex::ParticleReal k,
             amrex::ParticleReal taper,
             int unit = DEFAULT_unit,
@@ -316,11 +316,11 @@ for beam-quality preservation between plasma-accelerator stages",
         amrex::ParticleReal m_g;              //! quadrupole strength
     };
 
-    /** TaperedPL: physics plus common host-only metadata */
-    using TaperedPL = Element<TaperedPLPhysics>;
+    /** TaperedPL: GPU state plus common host-only metadata */
+    using TaperedPL = Element<TaperedPLGPU>;
 
 } // namespace impactx
 
-IMPACTX_PUSH_EXTERN_TEMPLATE(impactx::elements::TaperedPLPhysics)
+IMPACTX_PUSH_EXTERN_TEMPLATE(impactx::elements::TaperedPLGPU)
 
 #endif // IMPACTX_TAPEREDPL_H

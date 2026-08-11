@@ -11,7 +11,7 @@
 #define IMPACTX_NONLINEARLENS_H
 
 #include "particles/ImpactXParticleContainer.H"
-#include "Element.H"
+#include "mixin/gpuelement.H"
 #include "mixin/alignment.H"
 #include "mixin/beamoptic.H"
 #include "mixin/thin.H"
@@ -32,9 +32,9 @@
 
 namespace impactx::elements
 {
-    struct NonlinearLensPhysics
-    : public mixin::BeamOptic<NonlinearLensPhysics>,
-      public mixin::LinearTransport<NonlinearLensPhysics>,
+    struct NonlinearLensGPU
+    : public mixin::BeamOptic<NonlinearLensGPU>,
+      public mixin::LinearTransport<NonlinearLensGPU>,
       public mixin::Thin,
       public mixin::Alignment,
       public mixin::SpinTransport,
@@ -57,7 +57,7 @@ namespace impactx::elements
          * @param dy vertical translation error in m
          * @param rotation_degree rotation error in the transverse plane [degrees]
          */
-        NonlinearLensPhysics (
+        NonlinearLensGPU (
             amrex::ParticleReal knll,
             amrex::ParticleReal cnll,
             amrex::ParticleReal dx = DEFAULT_dx,
@@ -347,11 +347,11 @@ namespace impactx::elements
         amrex::ParticleReal m_beta;
     };
 
-    /** NonlinearLens: physics plus common host-only metadata */
-    using NonlinearLens = Element<NonlinearLensPhysics>;
+    /** NonlinearLens: GPU state plus common host-only metadata */
+    using NonlinearLens = Element<NonlinearLensGPU>;
 
 } // namespace impactx
 
-IMPACTX_PUSH_EXTERN_TEMPLATE(impactx::elements::NonlinearLensPhysics)
+IMPACTX_PUSH_EXTERN_TEMPLATE(impactx::elements::NonlinearLensGPU)
 
 #endif // IMPACTX_NONLINEARLENS_H
