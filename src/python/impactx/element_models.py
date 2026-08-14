@@ -78,7 +78,7 @@ def select_model(builders: dict, min_model: str):
 
     :param builders: maps tier name to a callable creating the element. A family
         registers only the tiers ImpactX actually implements. A feature-driven
-        requirement, such as skew multipoles needing the exact model, is
+        requirement, such as a thick octupole needing the exact model, is
         expressed by omitting the cheaper tiers.
     :param min_model: the requested fidelity floor, one of :data:`MODEL_TIERS`
     :return: ``(tier, builder)``. If no implemented tier reaches ``min_model``,

@@ -84,7 +84,7 @@ def lattice(
         ("linear", "paraxial" or "exact"). This raises the lower gate of the
         model choice only. The translator still picks the cheapest model that
         represents the MAD-X element, and a feature that already demands a
-        higher tier, such as skew multipoles, keeps it. See `build` below.
+        higher tier, such as a thick octupole, keeps it. See `build` below.
     :return: list of translated dictionaries
 
     Maintainer note (one-place-of-truth philosophy):
@@ -514,7 +514,8 @@ def lattice(
 
         use_exact_cfbend = any(abs(v) > 0.0 for v in (k1s, k2, k2s, k3, k3s))
         if use_exact_cfbend:
-            # Skew or higher-order body multipoles have no linear ImpactX model.
+            # Skew or higher-order body multipoles have no linear or paraxial
+            # ImpactX bend-body model.
             # This rung is already at the exact tier, min_model cannot raise it.
             return build("SBEND/RBEND body", {"exact": exact_cfbend})
         if abs(k1) > 0.0:
@@ -710,9 +711,15 @@ def lattice(
                 tilt_degree = d.get("tilt", 0.0) * rad_to_deg
                 if ds > 0:
                     if abs(k1s) > 0:
-                        # A skew quadrupole has no linear or paraxial ImpactX
-                        # model. It is already the exact tier, min_model cannot
-                        # raise it.
+                        # Combined normal and skew quadrupole strengths are
+                        # translated as one multipole, which is already the exact
+                        # tier, so min_model cannot raise it.
+                        # TODO(models): a pure quadrupole field is also a single
+                        # quadrupole of strength hypot(k1, k1s) under a rotation
+                        # of half the (k1, k1s) phase angle, 45 degrees for a
+                        # purely skew one. The linear and paraxial tiers could
+                        # serve this via make_quad with that rotation folded into
+                        # tilt_degree; mind the MAD-X TILT sign convention.
                         impactx_beamline.append(
                             elements.ExactMultipole(
                                 name=d["name"],
@@ -809,8 +816,8 @@ def lattice(
                     else:
                         # MAD-X allows ANGLE=0 SBEND with extra attributes. Pick the
                         # narrowest ImpactX element that represents the remaining
-                        # straight-field content (skew or higher multipoles require
-                        # ExactMultipole).
+                        # straight-field content (skew or higher multipoles are
+                        # translated as ExactMultipole).
                         if abs(k0) > 0.0 or abs(k0s) > 0.0:
                             _warn(
                                 f"SBEND '{d['name']}' has ANGLE=0 but nonzero K0/K0S; these are dropped (MAD-X treats K0/K0S as obsolete)."

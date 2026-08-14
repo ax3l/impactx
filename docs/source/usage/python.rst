@@ -1020,7 +1020,7 @@ This module provides elements and methods for the accelerator lattice.
       * ``"exact"`` requires at least the exact-Hamiltonian ``Exact*`` models
 
       A floor never *lowers* a model.
-      An element that already requires a richer model, such as a skew quadrupole
+      An element that already requires a richer model, such as a thick octupole
       that only exists as ``ExactMultipole``, keeps it.
       Where a tier is not implemented for an element family, the next higher one is
       used.
@@ -1059,6 +1059,11 @@ This module provides elements and methods for the accelerator lattice.
            - ``ExactMultipole``
            - ``ExactMultipole``
            - ``ExactMultipole``
+
+      A skew ``QUADRUPOLE`` reaches ``ExactMultipole`` at every floor because the
+      reader translates a combined normal and skew quadrupole as one multipole,
+      not because the cheaper tiers could not express it: a pure skew quadrupole
+      is also a ``Quad`` or ``ChrQuad`` under a 45 degree ``rotation``.
 
       Elements that MAD-X itself defines as thin (``MULTIPOLE``, ``KICKER``,
       ``RFCAVITY``, ``NLLENS``) and structural elements (``MARKER``, apertures,
