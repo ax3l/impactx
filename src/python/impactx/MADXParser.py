@@ -748,6 +748,10 @@ class Beam:
 
     particle: str = ""
     energy: float = 1.0  # GeV, MAD-X default
+    # Whether `energy` came from a BEAM command or is the MAD-X default above.
+    # Consumers that would silently produce wrong physics from an assumed
+    # energy, rather than a merely imprecise one, check this first.
+    energy_is_explicit: bool = False
     pc: float = 0.0  # momentum
     mass: float = 0.0
     charge: float = 0.0
@@ -826,6 +830,7 @@ class EvaluationContext:
             self.beams[sequence_name] = Beam(
                 particle=default.particle,
                 energy=default.energy,
+                energy_is_explicit=default.energy_is_explicit,
                 pc=default.pc,
                 mass=default.mass,
                 charge=default.charge,
@@ -2257,6 +2262,8 @@ class MADXParser:
         beam = self.context.get_beam_for_sequence(sequence_name)
         for attr, value in beam_attrs.items():
             setattr(beam, attr, value)
+        if "energy" in beam_attrs:
+            beam.energy_is_explicit = True
 
     def _parse_use_command(self):
         """Parse the USE command."""

@@ -1053,8 +1053,8 @@ This module provides elements and methods for the accelerator lattice.
            - ``DipEdge(model="nonlinear")``
          * - ``SOLENOID``
            - ``Sol``
-           - ``Sol`` (warns)
-           - ``Sol`` (warns)
+           - ``ChrAcc(ez=0)``
+           - ``ChrAcc(ez=0)`` (warns)
          * - ``SEXTUPOLE``, ``OCTUPOLE``, skew ``QUADRUPOLE``
            - ``ExactMultipole``
            - ``ExactMultipole``
@@ -1064,6 +1064,18 @@ This module provides elements and methods for the accelerator lattice.
       reader translates a combined normal and skew quadrupole as one multipole,
       not because the cheaper tiers could not express it: a pure skew quadrupole
       is also a ``Quad`` or ``ChrQuad`` under a 45 degree ``rotation``.
+
+      The paraxial ``SOLENOID`` is ``ChrAcc`` with ``ez=0``, which is the same
+      hard-edge solenoid map for the reference particle and adds the chromatic
+      dependence.
+      ``Sol`` takes its strength per unit rigidity, as ``ks``, while ``ChrAcc``
+      takes ``bz = ks * beta_gamma``, so the paraxial solenoid is pinned to the
+      reference energy that the MAD-X ``BEAM`` command declares.
+      Changing the reference energy after the import does not rescale it, and the
+      reader warns when it applies this translation.
+      Only an ``ENERGY`` that the file actually states is used for this: MAD-X
+      defaults it to 1 GeV, so a lattice whose ``BEAM`` command omits it keeps
+      ``Sol`` at every floor rather than converting against an assumed energy.
 
       Elements that MAD-X itself defines as thin (``MULTIPOLE``, ``KICKER``,
       ``RFCAVITY``, ``NLLENS``) and structural elements (``MARKER``, apertures,

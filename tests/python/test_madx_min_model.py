@@ -16,13 +16,13 @@ MAD-X input. ``min_model`` raises the *lower gate* of that choice without
 otherwise changing it. Three properties are asserted here:
 
 1. A floor never lowers a tier. An element that already needs a richer model,
-   such as a skew quadrupole that only exists as ``ExactMultipole``, keeps it at
+   such as a thick octupole that only exists as ``ExactMultipole``, keeps it at
    ``min_model="linear"``.
 2. Where a tier is not implemented, the floor rounds *up*. ImpactX has no
    ``ChrSbend``, so ``min_model="paraxial"`` on a plain SBEND yields the exact
    model rather than falling back to the linear one.
 3. Where no model reaches the floor at all, the translation still succeeds and
-   warns once. SOLENOID has only the ideal, hard-edge ``Sol``.
+   warns once. SOLENOID has no exact model.
 
 References:
     - https://impactx.readthedocs.io/en/latest/usage/python.html#impactx.elements.KnownElementsList.load_file
@@ -32,9 +32,10 @@ References:
 import math
 import warnings
 
+import numpy as np
 import pytest
 
-from impactx import elements
+from impactx import RefPart, elements
 from impactx.element_models import MODEL_TIERS, select_model
 from impactx.madx_to_impactx import (
     MADXImpactXTranslatorWarning,
@@ -259,7 +260,11 @@ def test_sextupole_stays_exact_at_linear_floor():
 
 
 def test_solenoid_warns_once_when_floor_is_unreachable():
-    """SOLENOID has only the linear Sol model: translate it anyway and warn once."""
+    """Without a reference energy only the linear Sol is available: warn once.
+
+    The paraxial ChrAcc(ez=0) model needs beta*gamma to convert ``ks``, so a
+    lattice translated without it keeps ``Sol`` at every floor.
+    """
     solenoids = [
         {"name": f"s{i}", "type": "solenoid", "l": 0.5, "ks": 1.0} for i in range(3)
     ]
@@ -286,6 +291,153 @@ def test_solenoid_does_not_warn_at_linear_floor():
 
     assert _types(beamline) == ["Sol"]
     assert not [w for w in caught if "no 'linear'" in str(w.message)]
+
+
+# ---------------------------------------------------------------------------
+# Solenoid promotion to the paraxial ChrAcc(ez=0) model
+# ---------------------------------------------------------------------------
+
+# beta*gamma of a 2 GeV kinetic-energy proton, the energy used below.
+_PROTON_MASS_MeV = 938.27208816
+_SOL_BETA_GAMMA = math.sqrt(((2000.0 + _PROTON_MASS_MeV) / _PROTON_MASS_MeV) ** 2 - 1.0)
+
+
+@pytest.mark.parametrize(
+    "min_model,expected",
+    [("linear", "Sol"), ("paraxial", "ChrAcc"), ("exact", "ChrAcc")],
+)
+def test_solenoid_promotes_to_chracc_with_reference_energy(min_model, expected):
+    """With beta*gamma known, the paraxial tier is ChrAcc(ez=0); exact rounds down."""
+    beamline = _translate(
+        {"name": "s1", "type": "solenoid", "l": 0.5, "ks": 1.0},
+        min_model=min_model,
+        ref_beta_gamma=_SOL_BETA_GAMMA,
+    )
+    assert _types(beamline) == [expected]
+
+
+def test_solenoid_chracc_field_follows_rigidity_conversion():
+    """Sol.ks is per unit rigidity, ChrAcc.bz is not: bz = ks * beta_gamma.
+
+    Both maps rotate by the same angle for the reference particle, Sol by
+    ks/2 * ds and ChrAcc by bz/2 * ds / beta_gamma.
+    """
+    ks = 1.7
+    beamline = _translate(
+        {"name": "s1", "type": "solenoid", "l": 0.5, "ks": ks},
+        min_model="paraxial",
+        ref_beta_gamma=_SOL_BETA_GAMMA,
+    )
+    sol = _only(beamline, elements.ChrAcc)
+    assert sol.ez == 0.0
+    assert sol.bz == pytest.approx(ks * _SOL_BETA_GAMMA)
+
+
+@pytest.mark.parametrize("ks", [1.7, -0.9])
+def test_solenoid_promotion_preserves_the_reference_map(ks):
+    """The promoted ChrAcc is the same transport map as the Sol it replaces.
+
+    ``ChrAcc`` adds the chromatic dependence on top, so the two agree exactly
+    only for the reference particle, which is what the 6x6 map describes.
+
+    ``ks=0`` is left out: ``Sol`` divides by its own strength when building the
+    map and returns NaN there, independent of this translation.
+    """
+    ref = RefPart()
+    ref.set_species("proton").set_kin_energy_MeV(2000.0)
+
+    common = {"name": "s1", "type": "solenoid", "l": 0.5, "ks": ks}
+    sol = _only(_translate(common, min_model="linear"), elements.Sol)
+    acc = _only(
+        _translate(common, min_model="paraxial", ref_beta_gamma=ref.beta_gamma),
+        elements.ChrAcc,
+    )
+
+    linear_map = np.array(sol.transfer_map(ref)).reshape(6, 6)
+    paraxial_map = np.array(acc.transfer_map(ref)).reshape(6, 6)
+    assert np.allclose(linear_map, paraxial_map, rtol=0.0, atol=1.0e-14)
+
+
+def test_solenoid_promotion_warns_about_energy_pinning():
+    """ChrAcc.bz is fixed at translation time, so the reader says so, once."""
+    solenoids = [
+        {"name": f"s{i}", "type": "solenoid", "l": 0.5, "ks": 1.0} for i in range(3)
+    ]
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        beamline = lattice(
+            solenoids, min_model="paraxial", ref_beta_gamma=_SOL_BETA_GAMMA
+        )
+
+    assert _types(beamline) == ["ChrAcc"] * 3
+    pinning = [w for w in caught if "pinned to the MAD-X BEAM energy" in str(w.message)]
+    assert len(pinning) == 1, [str(w.message) for w in caught]
+    # The paraxial floor is reachable now, so no "no model available" warning.
+    assert not [w for w in caught if "model available" in str(w.message)]
+
+
+def test_solenoid_exact_floor_warns_but_still_promotes():
+    """There is no ExactAcc yet, so an exact floor rounds down to ChrAcc and warns."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        beamline = lattice(
+            [{"name": "s1", "type": "solenoid", "l": 0.5, "ks": 1.0}],
+            min_model="exact",
+            ref_beta_gamma=_SOL_BETA_GAMMA,
+        )
+
+    assert _types(beamline) == ["ChrAcc"]
+    floor = [
+        w
+        for w in caught
+        if issubclass(w.category, MADXImpactXTranslatorWarning)
+        and "SOLENOID has no 'exact'" in str(w.message)
+        and "'paraxial' model instead" in str(w.message)
+    ]
+    assert len(floor) == 1, [str(w.message) for w in caught]
+
+
+def test_solenoid_promotion_end_to_end_from_madx_file(tmp_path):
+    """read_lattice derives beta*gamma from BEAM and promotes the solenoid."""
+    madx_file = tmp_path / "sol.madx"
+    madx_file.write_text(
+        "beam, particle=proton, energy=2.93827208816;\n"  # total energy in GeV
+        "s1: solenoid, l=0.5, ks=1.0;\n"
+        "cell: line=(s1);\n"
+        "use, sequence=cell;\n"
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        linear = read_lattice(str(madx_file), min_model="linear")
+        paraxial = read_lattice(str(madx_file), min_model="paraxial")
+
+    assert _types(linear) == ["Sol"]
+    assert _types(paraxial) == ["ChrAcc"]
+    assert _only(paraxial, elements.ChrAcc).bz == pytest.approx(
+        1.0 * _SOL_BETA_GAMMA, rel=1e-6
+    )
+
+
+def test_solenoid_not_promoted_without_a_stated_beam_energy(tmp_path):
+    """MAD-X defaults ENERGY to 1 GeV: do not translate a rigidity against it.
+
+    Promoting here would bake a wrong field strength into the lattice, so the
+    reader keeps the momentum-independent Sol and says why.
+    """
+    madx_file = tmp_path / "sol_no_energy.madx"
+    madx_file.write_text(
+        "beam, particle=proton;\n"  # no ENERGY: MAD-X assumes 1 GeV
+        "s1: solenoid, l=0.5, ks=1.0;\n"
+        "cell: line=(s1);\n"
+        "use, sequence=cell;\n"
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        beamline = read_lattice(str(madx_file), min_model="paraxial")
+
+    assert _types(beamline) == ["Sol"]
+    explained = [w for w in caught if "does not provide" in str(w.message)]
+    assert len(explained) == 1, [str(w.message) for w in caught]
 
 
 # ---------------------------------------------------------------------------

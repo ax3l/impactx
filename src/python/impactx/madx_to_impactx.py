@@ -69,6 +69,7 @@ def lattice(
     ref_mass_MeV=None,
     bv=1.0,
     min_model="linear",
+    ref_beta_gamma=None,
 ):
     """
     Function that converts a list of elements in the MADXParser format into ImpactX format
@@ -85,6 +86,10 @@ def lattice(
         model choice only. The translator still picks the cheapest model that
         represents the MAD-X element, and a feature that already demands a
         higher tier, such as a thick octupole, keeps it. See `build` below.
+    :param ref_beta_gamma: beta*gamma of the reference particle, from the MAD-X
+        BEAM total energy. Only needed for models whose strength is expressed
+        per unit rigidity rather than in the MAD-X k convention, currently the
+        paraxial solenoid. Those models are skipped when this is unknown.
     :return: list of translated dictionaries
 
     Maintainer note (one-place-of-truth philosophy):
@@ -184,23 +189,26 @@ def lattice(
             _warn(message)
             warned_once.add(key)
 
-    def build(family, builders, **kwargs):
+    def build(family, builders, *, note=None, **kwargs):
         """Create an element at the cheapest model tier that satisfies `min_model`.
 
         `builders` maps tier name ("linear"/"paraxial"/"exact") to the class or
-        factory for that tier, listing only the tiers ImpactX implements for this
-        family. Missing tiers are skipped upwards, so a paraxial floor on a
-        family that has only linear and exact models yields the exact one. A
-        floor that no implemented model reaches falls back to the most faithful
-        one available and warns once.
+        factory for that tier, listing only the tiers available for this family.
+        Missing tiers are skipped upwards, so a paraxial floor on a family that
+        has only linear and exact models yields the exact one. A floor that no
+        available model reaches falls back to the most faithful one available and
+        warns once, appending `note` when the family can explain why a tier is
+        missing here but present in ImpactX.
         """
         tier, builder = select_model(builders, min_model)
         if tier_rank(tier) < tier_rank(min_model):
-            warn_once(
-                f"min_model:{family}",
-                f"{family} has no '{min_model}' (or higher) model in ImpactX; "
-                f"using the '{tier}' model instead.",
+            message = (
+                f"{family} has no '{min_model}' (or higher) model available; "
+                f"using the '{tier}' model instead."
             )
+            if note is not None:
+                message += f" {note}"
+            warn_once(f"min_model:{family}", message)
         return builder(**kwargs)
 
     def make_drift(*, name, ds):
@@ -218,6 +226,57 @@ def lattice(
             rotation=tilt_degree,
             nslice=nslice,
         )
+
+    def make_solenoid(*, name, ds, ks, tilt_degree):
+        """Solenoid of the requested model tier.
+
+        The linear tier is the ideal hard-edge `Sol`. The paraxial tier is
+        `ChrAcc` with `ez=0`, which reduces to the same hard-edge solenoid map
+        for the reference particle while adding the chromatic dependence
+        (`tests/python/test_chracc_Ez0.py`). There is no exact tier yet.
+
+        The two elements express the field differently: `Sol.ks` is per unit
+        rigidity (`Bz/Brho`, the MAD-X convention) and so is momentum
+        independent, while `ChrAcc.bz` is `q*Bz/(m*c)`. They are related by
+        `bz = ks * beta_gamma`, which pins the paraxial solenoid to the beam
+        energy read from the MAD-X BEAM command. Without that energy the
+        paraxial tier is not offered at all.
+        """
+
+        def sol():
+            return elements.Sol(
+                name=name, ds=ds, ks=ks, rotation=tilt_degree, nslice=nslice
+            )
+
+        builders = {"linear": sol}
+        note = None
+        if ref_beta_gamma is not None and ref_beta_gamma > 0.0:
+            builders["paraxial"] = lambda: elements.ChrAcc(
+                name=name,
+                ds=ds,
+                ez=0.0,
+                bz=ks * ref_beta_gamma,
+                rotation=tilt_degree,
+                nslice=nslice,
+            )
+            if tier_rank(min_model) >= tier_rank("paraxial"):
+                # TODO(audit): ChrAcc.bz is fixed at translation time, so the
+                # promoted solenoid no longer follows a reference energy that is
+                # changed after import, unlike Sol.ks. Revisit once a paraxial
+                # solenoid takes ks directly.
+                warn_once(
+                    "solenoid_paraxial_energy",
+                    "SOLENOID is translated as ChrAcc(ez=0), whose field is "
+                    f"pinned to the MAD-X BEAM energy (beta*gamma={ref_beta_gamma:g}). "
+                    "Changing the reference energy after import will not rescale it.",
+                )
+        else:
+            note = (
+                "The paraxial ChrAcc(ez=0) model needs the reference energy, "
+                "which this lattice does not provide via the MAD-X BEAM command."
+            )
+
+        return build("SOLENOID", builders, note=note)
 
     def make_dipedge(*, name, psi, rc, g, K2, location, tilt_degree):
         """Dipole edge of the requested model tier.
@@ -1048,17 +1107,12 @@ def lattice(
                     if abs(ks) == 0.0 and abs(ksi) > 0.0:
                         # MAD-X derives KS from KSI/L for thick solenoids.
                         ks = ksi / ds
-                    # ImpactX has only the ideal, hard-edge linear solenoid. A
-                    # higher min_model cannot be honored here and warns once.
                     impactx_beamline.append(
-                        build(
-                            "SOLENOID",
-                            {"linear": elements.Sol},
+                        make_solenoid(
                             name=d["name"],
                             ds=ds,
                             ks=ks,
-                            rotation=tilt_degree,
-                            nslice=nslice,
+                            tilt_degree=tilt_degree,
                         )
                     )
                     if abs(ksi) > 0:
@@ -1549,6 +1603,24 @@ def read_lattice(madx_file, nslice=1, *, line=None, sequence=None, min_model="li
 
     bv = float(getattr(madx.context.beam, "bv", 1.0))
 
+    # beta*gamma of the reference particle, from the MAD-X BEAM total energy.
+    # Elements whose strength is expressed per unit rigidity rather than in the
+    # MAD-X k convention need it, see `ref_beta_gamma` in `lattice`.
+    #
+    # Only an ENERGY that the file actually states is used. MAD-X defaults it to
+    # 1 GeV, and translating a rigidity against an assumed energy would bake a
+    # wrong field strength into the lattice instead of merely approximating one.
+    ref_beta_gamma = None
+    if (
+        getattr(madx.context.beam, "energy_is_explicit", False)
+        and ref_mass_MeV is not None
+        and ref_mass_MeV > 0.0
+    ):
+        # MAD-X ENERGY is the total energy in GeV
+        gamma = float(madx.getEtot()) * 1.0e3 / ref_mass_MeV
+        if gamma > 1.0:
+            ref_beta_gamma = math.sqrt(gamma**2 - 1.0)
+
     return lattice(
         beamline,
         nslice,
@@ -1557,6 +1629,7 @@ def read_lattice(madx_file, nslice=1, *, line=None, sequence=None, min_model="li
         ref_mass_MeV=ref_mass_MeV,
         bv=bv,
         min_model=min_model,
+        ref_beta_gamma=ref_beta_gamma,
     )
 
 

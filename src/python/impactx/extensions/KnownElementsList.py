@@ -136,7 +136,7 @@ def load_file(self, filename, nslice=1, *, min_model="linear"):
     but never one below the requested tier (``"linear"``, ``"paraxial"`` or
     ``"exact"``). Where a tier is not implemented for an element family, the next
     higher one is used. Where no model reaches the requested tier at all, as for a
-    solenoid, which only has a linear model, a warning is emitted.
+    solenoid, which has no exact model, a warning is emitted.
 
     .. warning::
 
