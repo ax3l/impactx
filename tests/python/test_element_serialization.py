@@ -868,6 +868,81 @@ def test_copy_covers_all_element_types(all_elements):
     assert not failures, "elements that cannot be cloned:\n  " + "\n  ".join(failures)
 
 
+def test_zero_length_thick_element_roundtrip(all_elements):
+    """Thick elements with ``ds=0.0`` must survive ``from_dicts()`` and ``to_py()``.
+
+    ``to_dict()`` reports ``ds`` for thin and thick elements alike, so its value alone
+    cannot tell whether the constructor accepts it. Dropping ``ds`` whenever it was
+    zero left every zero-length thick element unconstructible.
+    """
+    lattice, _ = all_elements
+
+    tested = []
+    for element in lattice:
+        type_name = type(element).__name__
+        if type_name in SKIP_ELEMENTS:
+            continue
+        constructor_params = get_constructor_params(type(element))
+        if constructor_params is None or "ds" not in constructor_params:
+            continue
+        element.ds = 0.0
+        tested.append(type_name)
+    assert tested, "no thick element in the fixture"
+
+    dicts = lattice.to_dicts()
+
+    failures = []
+    for d in dicts:
+        if d["type"] not in tested:
+            continue
+        try:
+            elements.KnownElementsList().from_dicts([d])
+        except Exception as e:  # noqa: BLE001 - report every offender at once
+            failures.append(f"{d['type']}: {type(e).__name__}: {e}")
+    assert not failures, (
+        "zero-length elements that cannot be reconstructed:\n  " + "\n  ".join(failures)
+    )
+
+    lattice2 = elements.KnownElementsList()
+    lattice2.from_dicts(dicts)
+    assert [d["ds"] for d in lattice2.to_dicts()] == [d["ds"] for d in dicts]
+
+    # the generated source has to keep ``ds`` as well to stay executable
+    namespace = {}
+    exec(lattice.to_py(), namespace)
+    lattice3 = namespace["get_lattice"]()
+    assert [d["ds"] for d in lattice3.to_dicts()] == [d["ds"] for d in dicts]
+
+
+def test_zero_length_thick_elements_next_to_thin_elements():
+    """Zero-length thick elements keep ``ds`` while thin elements drop it."""
+    lattice = elements.KnownElementsList(
+        [
+            elements.Marker(name="m1"),
+            elements.Drift(ds=0.0, name="d0"),
+            elements.Quad(ds=0.0, k=1.0, name="q0"),
+            elements.Drift(ds=1.0, name="d1"),
+        ]
+    )
+
+    lattice2 = elements.KnownElementsList()
+    lattice2.from_dicts(lattice.to_dicts())
+
+    namespace = {}
+    exec(lattice.to_py(), namespace)
+    lattice3 = namespace["get_lattice"]()
+
+    for rebuilt in (lattice2, lattice3):
+        assert [type(e).__name__ for e in rebuilt] == [
+            "Marker",
+            "Drift",
+            "Quad",
+            "Drift",
+        ]
+        assert [e.name for e in rebuilt] == ["m1", "d0", "q0", "d1"]
+        assert [e.ds for e in rebuilt[1:]] == [0.0, 0.0, 1.0]
+
+
 def test_lattice_rebuild_covers_all_element_types(all_elements):
     """The same coverage through the public API that depends on cloning."""
     lattice, _ = all_elements
