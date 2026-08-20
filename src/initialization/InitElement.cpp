@@ -616,7 +616,10 @@ element_name) );
             bool load_ref_particle = Source::DEFAULT_load_ref_particle;
             pp_element.queryAdd("load_ref_particle", load_ref_particle);
 
-            m_lattice.emplace_back( Source(distribution, openpmd_path, active_once, load_ref_particle, element_name) );
+            int load_step = Source::DEFAULT_load_step;
+            pp_element.queryAddWithParser("load_step", load_step);
+
+            m_lattice.emplace_back( Source(distribution, openpmd_path, active_once, load_ref_particle, load_step, element_name) );
         } else if (element_type == "line")
         {
             // Parse the lattice elements for the sub-lattice in the line

@@ -2004,7 +2004,7 @@ For an element with ``nslice`` > 1, the pushes and maps refer to a single ``ds/n
 
       Scale factor (in meters^(1/2)) of the IOTA nonlinear magnetic insert element used for computing H and I.
 
-.. py:class:: impactx.elements.Source(distribution, openpmd_path, active_once=True, load_ref_particle=True, name=None)
+.. py:class:: impactx.elements.Source(distribution, openpmd_path, active_once=True, load_ref_particle=True, load_step=-1, name=None)
 
    A particle source.
    Currently, this only supports openPMD files from our :py:class:`impactx.elements.BeamMonitor`
@@ -2013,7 +2013,22 @@ For an element with ``nslice`` > 1, the pushes and maps refer to a single ``ds/n
    :param openpmd_path: path to the openPMD series
    :param active_once: Inject particles only for the first lattice period. Default: ``True``
    :param load_ref_particle: Restore the reference particle from the species metadata of the openPMD file. Default: ``True``
+   :param load_step: Which step to load from the openPMD series. Default: ``-1``
    :param name: an optional name for the element
+
+   .. note::
+
+      A ``load_step`` :math:`\geq 0` is the ImpactX step at which the :py:class:`impactx.elements.BeamMonitor`
+      wrote the beam, which is stored as the openPMD iteration in the file.
+      These step numbers are usually not consecutive, because the global step counter also advances in
+      the elements between two monitors: list them with, e.g., ``openpmd-ls`` before selecting one.
+      A step that is not in the file is an error, which lists the available steps.
+
+      ``load_step=-1`` reads the last step in the file and more negative values count back from it,
+      e.g. ``load_step=-2`` reads the second to last step.
+
+      Selecting a step reads the series in random access, which the ``"v"`` (variable based)
+      iteration encoding of the :py:class:`impactx.elements.BeamMonitor` does not support.
 
    .. note::
 

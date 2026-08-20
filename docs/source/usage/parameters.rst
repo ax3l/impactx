@@ -2070,6 +2070,24 @@ When ImpactX needs to sort particles spatially, it will redistribute them over M
     The existing reference particle in that case needs to be manually configured before the tracking loop.
     This option acts during particle tracking, it has no effect in envelope or reference-particle-only tracking.
 
+.. pp:param:: <source_name>.load_step
+    :type: ``integer``
+    :default: ``-1``
+
+    Which step to load from the openPMD series.
+
+    A value :math:`\geq 0` is the ImpactX step at which the ``beam_monitor`` wrote the beam, which is
+    stored as the openPMD iteration in the file.
+    These step numbers are usually not consecutive, because the global step counter also advances in
+    the elements between two monitors: list them with, e.g., ``openpmd-ls`` before selecting one.
+    A step that is not in the file is an error, which lists the available steps.
+
+    ``-1`` reads the last step in the file and more negative values count back from it, e.g. ``-2``
+    reads the second to last step.
+
+    Selecting a step reads the series in random access, which the ``v`` (variable based) iteration
+    encoding of the ``beam_monitor`` does not support.
+
 
 ``spin_map``
 ^^^^^^^^^^^^

@@ -2473,7 +2473,8 @@ void init_elements(py::module& m)
                      std::make_pair("distribution", src.m_distribution),
                      std::make_pair("openpmd_path", src.m_series_name),
                      std::make_pair("active_once", src.m_active_once),
-                     std::make_pair("load_ref_particle", src.m_load_ref_particle)
+                     std::make_pair("load_ref_particle", src.m_load_ref_particle),
+                     std::make_pair("load_step", src.m_load_step)
                  );
              }
         )
@@ -2484,7 +2485,8 @@ void init_elements(py::module& m)
                     std::make_pair("distribution", src.m_distribution),
                     std::make_pair("openpmd_path", src.m_series_name),
                     std::make_pair("active_once", src.m_active_once),
-                    std::make_pair("load_ref_particle", src.m_load_ref_particle)
+                    std::make_pair("load_ref_particle", src.m_load_ref_particle),
+                    std::make_pair("load_step", src.m_load_step)
                 );
             }
         )
@@ -2493,12 +2495,14 @@ void init_elements(py::module& m)
              std::string,
              bool,
              bool,
+             int,
              std::optional<std::string>
          >(),
              py::arg("distribution"),
              py::arg("openpmd_path"),
              py::arg("active_once") = Source::DEFAULT_active_once,
              py::arg("load_ref_particle") = Source::DEFAULT_load_ref_particle,
+             py::arg("load_step") = Source::DEFAULT_load_step,
              py::arg("name") = py::none(),
              "A particle source."
         )
@@ -2521,6 +2525,14 @@ void init_elements(py::module& m)
             [](Source & src) { return src.m_load_ref_particle; },
             [](Source & src, bool load_ref_particle) { src.m_load_ref_particle = load_ref_particle; },
             "Restore the reference particle from the species metadata of the openPMD file (particle tracking only)."
+        )
+        .def_property("load_step",
+            [](Source & src) { return src.m_load_step; },
+            [](Source & src, int load_step) { src.m_load_step = load_step; },
+            "Which step to load from the openPMD series: a value >= 0 is the ImpactX step at "
+            "which the beam monitor wrote the beam (the openPMD iteration stored in the file), "
+            "-1 is the last step in the file and more negative values count back from it "
+            "(-2 is the second to last step)."
         )
     ;
     register_push(py_Source);

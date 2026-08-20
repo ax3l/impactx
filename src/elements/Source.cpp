@@ -15,9 +15,11 @@
 #   include "elements/diagnostics/openPMD.H"
 #   include <openPMD/openPMD.hpp>
 namespace io = openPMD;
-#else
-#  include <stdexcept>
 #endif
+
+#include <iterator>
+#include <stdexcept>
+#include <string>
 
 
 namespace impactx::elements
@@ -41,9 +43,51 @@ namespace impactx::elements
 #   endif
         );
 
-        // read the last iteration (highest openPMD iteration)
-        // TODO: later we can make this an option
-        int const read_iteration = std::prev(series.iterations.end())->first;
+        // select the step (openPMD iteration) to read
+        auto const & iterations = series.iterations;
+        if (iterations.empty()) {
+            throw std::runtime_error("Source: no step found in " + m_series_name);
+        }
+
+        // the steps stored in the file, for error messages
+        auto const available_steps = [&iterations] () {
+            std::string steps;
+            for (auto const & iteration_entry : iterations) {
+                if (!steps.empty()) { steps += ", "; }
+                steps += std::to_string(iteration_entry.first);
+            }
+            return steps;
+        };
+
+        io::Iteration::IterationIndex_t read_iteration = 0;
+        if (m_load_step >= 0)
+        {
+            // an ImpactX step, which the beam monitor wrote as the openPMD iteration
+            auto const requested = static_cast<io::Iteration::IterationIndex_t>(m_load_step);
+            if (!iterations.contains(requested)) {
+                throw std::runtime_error(
+                    "Source: load_step " + std::to_string(m_load_step) + " not found in " +
+                    m_series_name + " (available steps: " + available_steps() + ")"
+                );
+            }
+            read_iteration = requested;
+        }
+        else
+        {
+            // negative: count back from the last step in the file (-1 is the last step)
+            auto const num_steps = static_cast<long>(iterations.size());
+            long const index = num_steps + static_cast<long>(m_load_step);
+            if (index < 0) {
+                throw std::runtime_error(
+                    "Source: load_step " + std::to_string(m_load_step) +
+                    " reaches before the first of the " + std::to_string(num_steps) +
+                    " steps in " + m_series_name +
+                    " (available steps: " + available_steps() + ")"
+                );
+            }
+            read_iteration = std::next(iterations.begin(), index)->first;
+        }
+
         io::Iteration iteration = series.iterations[read_iteration];
 
         // TODO: later we can make the particle species name an option

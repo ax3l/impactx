@@ -32,6 +32,7 @@ namespace impactx::elements
 
         static constexpr bool DEFAULT_active_once = true;
         static constexpr bool DEFAULT_load_ref_particle = true;
+        static constexpr int DEFAULT_load_step = -1;
 
         /** A particle source
          *
@@ -40,6 +41,10 @@ namespace impactx::elements
          * @param active_once inject particles only for the first lattice period
          * @param load_ref_particle restore the reference particle from the species metadata
          *        of the openPMD file (particle tracking only)
+         * @param load_step which step to load from the openPMD series: a value >= 0 is the
+         *        ImpactX step at which the beam monitor wrote the beam (the openPMD iteration
+         *        stored in the file), -1 is the last step in the file and more negative values
+         *        count back from it (-2 is the second to last step)
          * @param name a user defined and not necessarily unique name of the element
          */
         Source (
@@ -47,13 +52,15 @@ namespace impactx::elements
             std::string openpmd_path,
             bool active_once = DEFAULT_active_once,
             bool load_ref_particle = DEFAULT_load_ref_particle,
+            int load_step = DEFAULT_load_step,
             std::optional<std::string> name = DEFAULT_name
         )
         : Named(std::move(name)),
           m_distribution(distribution),
           m_series_name(std::move(openpmd_path)),
           m_active_once(active_once),
-          m_load_ref_particle(load_ref_particle)
+          m_load_ref_particle(load_ref_particle),
+          m_load_step(load_step)
         {
             if (distribution != "openPMD") {
                 throw std::invalid_argument("Only 'openPMD' distribution is supported if openpmd_path is provided!");
@@ -69,11 +76,12 @@ namespace impactx::elements
         /** Initialize/Load particles.
          *
          * Particles are relative to the reference particle.
+         * The step that is read from the file is selected with load_step.
          * If load_ref_particle is set, the reference particle is restored from
          * the species metadata of the file before the particles are added.
          *
          * @param[in,out] pc particle container to push
-         * @param[in] step global step for diagnostics (unused)
+         * @param[in] step current global step of the tracking loop (unused)
          * @param[in] period for periodic lattices, this is the current period (turn or cycle)
          */
         void operator() (
@@ -105,6 +113,7 @@ namespace impactx::elements
         std::string m_series_name; //! openPMD filename
         bool m_active_once = true; //! Inject particles only for the first lattice period
         bool m_load_ref_particle = true; //! Restore the reference particle from the file's species metadata
+        int m_load_step = DEFAULT_load_step; //! ImpactX step (openPMD iteration) to load; negative values count back from the last step
     };
 
 } // namespace impactx
