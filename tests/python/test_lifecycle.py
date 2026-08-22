@@ -165,3 +165,27 @@ print("EXTERNAL_AMREX_OK")
     proc, output = run_snippet(snippet)
     assert proc.returncode == 0, output
     assert "EXTERNAL_AMREX_OK" in output, output
+
+
+@pytest.mark.manages_amrex
+def test_warning_inputs_before_init_grids():
+    """Warning logger inputs can be set before the simulation is initialized."""
+    snippet = """
+from impactx import ImpactX
+
+sim = ImpactX()
+sim.abort_on_warning_threshold = "high"
+sim.abort_on_unused_inputs = 0
+sim.always_warn_immediately = 1
+sim.particle_shape = 2
+sim.init_grids()
+
+assert sim.abort_on_warning_threshold == "high"
+assert sim.abort_on_unused_inputs == 0
+
+sim.finalize()
+print("WARNING_INPUTS_OK")
+"""
+    proc, output = run_snippet(snippet)
+    assert proc.returncode == 0, output
+    assert "WARNING_INPUTS_OK" in output, output
