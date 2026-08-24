@@ -105,8 +105,10 @@ def test_source_load_step():
     beam = sim.beam
 
     try:
-        # the reference particle is restored per push, so we can read
-        # several steps into the same particle container
+        # sig_x of the loaded particles, per step: the reference particle alone
+        # would not show whether the particles come from the selected step
+        sig_x = {}
+
         for selection, s_expected in [
             ({"load_step": steps[0]}, 0.0),  # first step: by step number
             ({"load_step": steps[-1]}, DRIFT_DS),  # last step: by step number
@@ -116,10 +118,25 @@ def test_source_load_step():
             ({"load_step_index": -2}, 0.0),  # first step: counted back
             ({}, DRIFT_DS),  # the default is the last step in the file
         ]:
+            # the source adds to the container, so read each step into an empty one
+            beam.clear_particles()
+
             source = elements.Source("openPMD", series_path, name="source", **selection)
             push(beam, source)
             assert beam.ref.s == pytest.approx(s_expected, rel=RTOL, abs=1.0e-12)
             assert beam.ref.kin_energy_MeV == pytest.approx(250.0, rel=RTOL)
+
+            moments = beam.beam_moments()
+            # the whole beam was read into the emptied container
+            assert moments["charge_C"] == pytest.approx(1.0e-9, rel=RTOL)
+            sig_x.setdefault(s_expected, []).append(moments["sig_x"])
+
+        # the same step selected by number or by position holds the same particles
+        for values in sig_x.values():
+            assert values == pytest.approx([values[0]] * len(values), rel=RTOL)
+
+        # ... and the beam widens along the drift between the two steps
+        assert sig_x[0.0][0] < sig_x[DRIFT_DS][0]
 
         # a step that is not in the file lists the steps that are in it
         missing = steps[-1] + 1
