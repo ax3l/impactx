@@ -2072,7 +2072,7 @@ When ImpactX needs to sort particles spatially, it will redistribute them over M
 
 .. pp:param:: <source_name>.load_step
     :type: ``integer``
-    :default: the last step in the file
+    :default: unset (if neither option is set, the last step in the file is loaded)
 
     Which step (iteration) to load from the openPMD series, selected by step number.
 
@@ -2081,19 +2081,21 @@ When ImpactX needs to sort particles spatially, it will redistribute them over M
     These step numbers are usually not consecutive, because the global step counter also advances in
     the elements between two monitors: list them with, e.g., `openpmd-ls <https://openpmd-api.readthedocs.io/en/0.17.1/utilities/cli.html>`__ before selecting one.
     A step that is not in the file is an error, which lists the steps that are in it.
+    A negative value is an error, too: the step numbers in a file are not negative, use
+    ``load_step_index`` to count back from the last step.
 
     Set at most one of ``load_step`` and ``load_step_index``.
 
 .. pp:param:: <source_name>.load_step_index
     :type: ``integer``
-    :default: the last step in the file
+    :default: unset (if neither option is set, the last step in the file is loaded)
 
     Which step (iteration) to load from the openPMD series, selected by position in the file.
 
     ``0`` is the first step in the file and ``-1`` is the last, counting back from it as in Python,
     e.g. ``-2`` is the second to last step.
-    Use this when the step numbers in the file are not known, e.g. to continue from the last turn
-    that a ring wrote.
+    Use this when the step numbers in the file are not known, e.g. ``-2`` to continue from the turn
+    before the last one that a ring wrote.
     An index that reaches past either end of the file is an error, which lists the steps in it.
 
     Set at most one of ``load_step`` and ``load_step_index``.

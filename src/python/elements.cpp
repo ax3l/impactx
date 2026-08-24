@@ -183,7 +183,8 @@ namespace
 
     /** Helper to format {key, value} pairs
      *
-     * Expected outcome is ", key=value" with key as a string and appropriate formatting for value.
+     * Expected outcome is ", key=value" with key as a string and appropriate formatting for value;
+     * an unset std::optional value is formatted as "None".
      *
      * @tparam T value type
      * @param arg a key-value pair

@@ -617,7 +617,7 @@ element_name) );
             bool load_ref_particle = Source::DEFAULT_load_ref_particle;
             pp_element.queryAdd("load_ref_particle", load_ref_particle);
 
-            // at most one of both is set, the default reads the last step in the file
+            // at most one of the two is set, the default reads the last step in the file
             std::optional<int> load_step = Source::DEFAULT_load_step;
             int load_step_value = 0;
             if (pp_element.queryWithParser("load_step", load_step_value)) {

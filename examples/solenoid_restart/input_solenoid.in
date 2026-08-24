@@ -16,7 +16,7 @@ source.openpmd_path = "../solenoid/diags/openPMD/m1.h5"
 # the reference particle is restored from the file, too (default):
 #   source.load_ref_particle = true
 # the step to load, by step number in the file or by position in it;
-# set at most one of both (default: the last step in the file):
+# set at most one of the two (default: the last step in the file):
 #   source.load_step = 3
 #   source.load_step_index = -1
 

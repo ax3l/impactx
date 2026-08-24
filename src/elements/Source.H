@@ -51,6 +51,8 @@ namespace impactx::elements
          * @param load_step_index the position of the step in the file: 0 is the first step and
          *        -1 the last step, counting back from it as in Python (-2 is the second to last)
          * @param name a user defined and not necessarily unique name of the element
+         * @throws std::invalid_argument if distribution is not "openPMD", if both load_step and
+         *         load_step_index are set or if load_step is negative
          */
         Source (
             std::string distribution,
@@ -102,6 +104,10 @@ namespace impactx::elements
          * @param[in,out] pc particle container to push
          * @param[in] step current global step of the tracking loop (unused)
          * @param[in] period for periodic lattices, this is the current period (turn or cycle)
+         * @throws std::invalid_argument if both load_step and load_step_index are set or if
+         *         load_step is negative
+         * @throws std::runtime_error if the series holds no step or if the selected step or
+         *         index is not in the file
          */
         void operator() (
             ImpactXParticleContainer & pc,
