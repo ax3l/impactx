@@ -174,6 +174,13 @@ namespace
         );
     }
 
+    /** Trait for std::optional values, which are formatted as "None" if unset */
+    template<typename T>
+    struct is_optional : std::false_type {};
+
+    template<typename T>
+    struct is_optional<std::optional<T>> : std::true_type {};
+
     /** Helper to format {key, value} pairs
      *
      * Expected outcome is ", key=value" with key as a string and appropriate formatting for value.
@@ -186,7 +193,17 @@ namespace
     std::string
     format_extra (std::pair<char const *, T> const & arg)
     {
-        if constexpr (std::is_floating_point_v<T>)
+        if constexpr (is_optional<T>::value)
+        {
+            // optional: unset is None, otherwise the value it holds
+            if (!arg.second.has_value()) {
+                return std::string(", ")
+                    .append(arg.first)
+                    .append("=None");
+            }
+            return format_extra(std::make_pair(arg.first, arg.second.value()));
+        }
+        else if constexpr (std::is_floating_point_v<T>)
         {
             // float
             // TODO: format as scientific number
@@ -2474,19 +2491,27 @@ void init_elements(py::module& m)
                      std::make_pair("openpmd_path", src.m_series_name),
                      std::make_pair("active_once", src.m_active_once),
                      std::make_pair("load_ref_particle", src.m_load_ref_particle),
-                     std::make_pair("load_step", src.m_load_step)
+                     std::make_pair("load_step", src.m_load_step),
+                     std::make_pair("load_step_index", src.m_load_step_index)
                  );
              }
         )
         .def("to_dict",
             [](Source const & src) {
+                // an unset option is None, so that the dict can be passed to the constructor
+                ElementPropertyTypes load_step = py::none();
+                if (src.m_load_step.has_value()) { load_step = src.m_load_step.value(); }
+                ElementPropertyTypes load_step_index = py::none();
+                if (src.m_load_step_index.has_value()) { load_step_index = src.m_load_step_index.value(); }
+
                 return element_dict(
                     src,
                     std::make_pair("distribution", src.m_distribution),
                     std::make_pair("openpmd_path", src.m_series_name),
                     std::make_pair("active_once", src.m_active_once),
                     std::make_pair("load_ref_particle", src.m_load_ref_particle),
-                    std::make_pair("load_step", src.m_load_step)
+                    std::make_pair("load_step", load_step),
+                    std::make_pair("load_step_index", load_step_index)
                 );
             }
         )
@@ -2495,7 +2520,8 @@ void init_elements(py::module& m)
              std::string,
              bool,
              bool,
-             int,
+             std::optional<int>,
+             std::optional<int>,
              std::optional<std::string>
          >(),
              py::arg("distribution"),
@@ -2503,6 +2529,7 @@ void init_elements(py::module& m)
              py::arg("active_once") = Source::DEFAULT_active_once,
              py::arg("load_ref_particle") = Source::DEFAULT_load_ref_particle,
              py::arg("load_step") = Source::DEFAULT_load_step,
+             py::arg("load_step_index") = Source::DEFAULT_load_step_index,
              py::arg("name") = py::none(),
              "A particle source."
         )
@@ -2528,11 +2555,19 @@ void init_elements(py::module& m)
         )
         .def_property("load_step",
             [](Source & src) { return src.m_load_step; },
-            [](Source & src, int load_step) { src.m_load_step = load_step; },
-            "Which step to load from the openPMD series: a value >= 0 is the ImpactX step at "
-            "which the beam monitor wrote the beam (the openPMD iteration stored in the file), "
-            "-1 is the last step in the file and more negative values count back from it "
-            "(-2 is the second to last step)."
+            [](Source & src, std::optional<int> load_step) { src.m_load_step = load_step; },
+            "Which step (iteration) to load from the openPMD series: the ImpactX step at which "
+            "the beam monitor wrote the beam, which is stored as the openPMD iteration in the "
+            "file. Set at most one of load_step and load_step_index; if neither is set, the "
+            "last step in the file is loaded."
+        )
+        .def_property("load_step_index",
+            [](Source & src) { return src.m_load_step_index; },
+            [](Source & src, std::optional<int> load_step_index) { src.m_load_step_index = load_step_index; },
+            "Which step (iteration) to load from the openPMD series, by position in the file: "
+            "0 is the first step and -1 the last, counting back from it as in Python "
+            "(-2 is the second to last step). Set at most one of load_step and load_step_index; "
+            "if neither is set, the last step in the file is loaded."
         )
     ;
     register_push(py_Source);

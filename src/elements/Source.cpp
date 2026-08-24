@@ -17,6 +17,7 @@
 namespace io = openPMD;
 #endif
 
+#include <cstddef>
 #include <iterator>
 #include <stdexcept>
 #include <string>
@@ -24,6 +25,23 @@ namespace io = openPMD;
 
 namespace impactx::elements
 {
+    void
+    Source::check_step_selection () const
+    {
+        if (m_load_step.has_value() && m_load_step_index.has_value()) {
+            throw std::invalid_argument(
+                "Source: set either load_step or load_step_index, not both."
+            );
+        }
+        if (m_load_step.has_value() && *m_load_step < 0) {
+            throw std::invalid_argument(
+                "Source: load_step " + std::to_string(*m_load_step) + " is negative, but it is "
+                "the ImpactX step stored in the file; use load_step_index to count back from "
+                "the last step in the file."
+            );
+        }
+    }
+
     void
     Source::operator() (
         ImpactXParticleContainer & pc,
@@ -35,6 +53,8 @@ namespace impactx::elements
         if (m_active_once && period > 0) {
             return;
         }
+
+        check_step_selection();
 
 #ifdef ImpactX_USE_OPENPMD
         auto series = io::Series(m_series_name, io::Access::READ_ONLY
@@ -50,39 +70,59 @@ namespace impactx::elements
         }
 
         // the steps stored in the file, for error messages
+        // a long list, e.g. one step per turn in a ring, is elided in the middle
         auto const available_steps = [&iterations] () {
-            std::string steps;
-            for (auto const & iteration_entry : iterations) {
-                if (!steps.empty()) { steps += ", "; }
-                steps += std::to_string(iteration_entry.first);
+            constexpr std::size_t max_listed = 100; //! list at most this many steps
+            std::size_t const num_steps = iterations.size();
+            bool const elide = num_steps > max_listed;
+            std::size_t const num_head = elide ? max_listed / 2 : num_steps;
+            std::size_t const num_tail = elide ? max_listed - max_listed / 2 : 0;
+
+            std::string list;
+            auto append_step = [&list] (auto const & iteration_entry) {
+                if (!list.empty()) { list += ", "; }
+                list += std::to_string(iteration_entry->first);
+            };
+
+            auto it = iterations.begin();
+            for (std::size_t i = 0; i < num_head; ++i, ++it) { append_step(it); }
+            if (elide) {
+                list += ", ...";
+                std::advance(it, static_cast<long>(num_steps - num_head - num_tail));
+                for (std::size_t i = 0; i < num_tail; ++i, ++it) { append_step(it); }
             }
-            return steps;
+
+            return std::to_string(num_steps) +
+                   (num_steps == 1 ? " available step: " : " available steps: ") + list;
         };
 
         io::Iteration::IterationIndex_t read_iteration = 0;
-        if (m_load_step >= 0)
+        if (m_load_step.has_value())
         {
             // an ImpactX step, which the beam monitor wrote as the openPMD iteration
-            auto const requested = static_cast<io::Iteration::IterationIndex_t>(m_load_step);
+            auto const requested = static_cast<io::Iteration::IterationIndex_t>(*m_load_step);
             if (!iterations.contains(requested)) {
                 throw std::runtime_error(
-                    "Source: load_step " + std::to_string(m_load_step) + " not found in " +
-                    m_series_name + " (available steps: " + available_steps() + ")"
+                    "Source: load_step " + std::to_string(*m_load_step) + " not found in " +
+                    m_series_name + " (" + available_steps() + ")"
                 );
             }
             read_iteration = requested;
         }
         else
         {
-            // negative: count back from the last step in the file (-1 is the last step)
+            // a position in the file: 0 is the first step, -1 the last, as in Python
+            constexpr int last_step_index = -1; //! read the last step in the file by default
+            int const step_index = m_load_step_index.value_or(last_step_index);
+
             auto const num_steps = static_cast<long>(iterations.size());
-            long const index = num_steps + static_cast<long>(m_load_step);
-            if (index < 0) {
+            long const index = step_index < 0
+                ? num_steps + static_cast<long>(step_index)
+                : static_cast<long>(step_index);
+            if (index < 0 || index >= num_steps) {
                 throw std::runtime_error(
-                    "Source: load_step " + std::to_string(m_load_step) +
-                    " reaches before the first of the " + std::to_string(num_steps) +
-                    " steps in " + m_series_name +
-                    " (available steps: " + available_steps() + ")"
+                    "Source: load_step_index " + std::to_string(step_index) +
+                    " is out of range in " + m_series_name + " (" + available_steps() + ")"
                 );
             }
             read_iteration = std::next(iterations.begin(), index)->first;
