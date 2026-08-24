@@ -10,13 +10,23 @@ import time
 
 from .utils import TIMEOUT, DashboardTester
 
-# 'Source' parameters whose signature default is None, and are therefore optional.
-# 'load_step' and 'load_step_index' are mutually exclusive, so neither of them
-# may be forced onto the user.
-SOURCE_OPTIONAL_PARAMETERS = ("name", "load_step", "load_step_index")
+# 'Quad' parameters whose signature default is None, and are therefore optional.
+# 'name' is the optional parameter that every lattice element carries.
+QUAD_OPTIONAL_PARAMETERS = ("name",)
 
-# 'Source' parameters without a signature default, and are therefore required
-SOURCE_REQUIRED_PARAMETERS = ("distribution", "openpmd_path")
+# 'Quad' parameters without a signature default, and are therefore required
+QUAD_REQUIRED_PARAMETERS = ("ds", "k")
+
+# 'Quad' parameters carrying a signature default other than None. Having a
+# default does not make a parameter optional: these are pre-filled, not blank.
+QUAD_DEFAULTED_PARAMETERS = {
+    "dx": "0.0",
+    "dy": "0.0",
+    "rotation": "0.0",
+    "aperture_x": "0.0",
+    "aperture_y": "0.0",
+    "nslice": "1",
+}
 
 
 def add_lattice_element(dashboard: DashboardTester, element_name: str) -> None:
@@ -58,6 +68,7 @@ def assert_parameter_error(
     :param parameter_name: The parameter to check.
     :param has_error: Whether the parameter is expected to carry an error.
     """
+    error_message = None
     for _ in range(TIMEOUT):
         error_message = lattice_parameters(dashboard, index)[parameter_name][
             "parameter_error_message"
@@ -76,20 +87,30 @@ def test_optional_parameters_are_blank_and_valid(dashboard) -> None:
     """
     An optional lattice element parameter starts out blank and valid, while a
     required one is flagged until the user provides a value.
+
+    'Quad' shows all three kinds in a single element: 'ds' and 'k' are
+    required, 'name' is optional, and the remaining parameters are pre-filled
+    from their signature defaults.
     """
-    add_lattice_element(dashboard, "Source")
+    add_lattice_element(dashboard, "Quad")
     parameters = lattice_parameters(dashboard, 0)
 
-    for name in SOURCE_OPTIONAL_PARAMETERS:
+    for name in QUAD_OPTIONAL_PARAMETERS:
         parameter = parameters[name]
         assert parameter["parameter_is_optional"] is True, name
         assert parameter["ui_input"] == "", name
         assert parameter["parameter_error_message"] == [], name
 
-    for name in SOURCE_REQUIRED_PARAMETERS:
+    for name in QUAD_REQUIRED_PARAMETERS:
         parameter = parameters[name]
         assert parameter["parameter_is_optional"] is False, name
         assert parameter["parameter_error_message"] != [], name
+
+    for name, default_value in QUAD_DEFAULTED_PARAMETERS.items():
+        parameter = parameters[name]
+        assert parameter["parameter_is_optional"] is False, name
+        assert parameter["ui_input"] == default_value, name
+        assert parameter["parameter_error_message"] == [], name
 
 
 def test_optional_parameters_are_validated_once_filled(dashboard) -> None:
@@ -97,13 +118,19 @@ def test_optional_parameters_are_validated_once_filled(dashboard) -> None:
     An optional lattice element parameter is validated as soon as it carries a
     value, and clearing it makes the error go away again.
     """
-    add_lattice_element(dashboard, "Source")
+    add_lattice_element(dashboard, "Quad")
 
-    dashboard.set_input("load_step1", "not_an_integer")
-    assert_parameter_error(dashboard, 0, "load_step", has_error=True)
+    # not a valid Python identifier
+    dashboard.set_input("name1", "2bad")
+    assert_parameter_error(dashboard, 0, "name", has_error=True)
 
-    dashboard.set_input("load_step1", "")
-    assert_parameter_error(dashboard, 0, "load_step", has_error=False)
+    # blank is valid for an optional parameter
+    dashboard.set_input("name1", "")
+    assert_parameter_error(dashboard, 0, "name", has_error=False)
+
+    # and so is a valid value
+    dashboard.set_input("name1", "q1")
+    assert_parameter_error(dashboard, 0, "name", has_error=False)
 
 
 def test_beam_monitor_name_still_defaults(dashboard) -> None:
