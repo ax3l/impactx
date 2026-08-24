@@ -23,8 +23,9 @@ io = pytest.importorskip("openpmd_api")
 if not Config.have_openpmd:
     pytest.skip("ImpactX was compiled without openPMD support", allow_module_level=True)
 
-# the drift between the two beam monitors
-DRIFT_DS = 0.25
+# the drift between the two beam monitors: long enough that the beam widens
+# well beyond the sampling noise of the moments of a finite number of particles
+DRIFT_DS = 2.0
 
 # HDF5 as in the solenoid_restart example, else whatever this build provides
 BACKEND = "h5" if Config.openpmd_backends.get("hdf5", False) else "default"
@@ -136,7 +137,7 @@ def test_source_load_step():
             assert values == pytest.approx([values[0]] * len(values), rel=RTOL)
 
         # ... and the beam widens along the drift between the two steps
-        assert sig_x[0.0][0] < sig_x[DRIFT_DS][0]
+        assert sig_x[DRIFT_DS][0] > 1.1 * sig_x[0.0][0]
 
         # a step that is not in the file lists the steps that are in it
         missing = steps[-1] + 1
