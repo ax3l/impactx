@@ -62,7 +62,7 @@ jobs:
           -DImpactX_COMPUTE=CUDA       \
           -DImpactX_FFT=ON             \
           -DImpactX_PYTHON=ON          \
-          -DAMReX_CUDA_ARCH=6.0        \
+          -DCMAKE_CUDA_ARCHITECTURES=60 \
           -DImpactX_PRECISION=SINGLE   \
           -DAMReX_CUDA_ERROR_CROSS_EXECUTION_SPACE_CALL=ON \
           -DAMReX_CUDA_ERROR_CAPTURE_THIS=ON

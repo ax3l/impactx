@@ -307,6 +307,8 @@ For example, this builds ImpactX with Python bindings and Nvidia GPU (CUDA) supp
 
    cmake -S . -B build -DImpactX_PYTHON=ON -DImpactX_COMPUTE=CUDA
 
+On a machine without a visible GPU, e.g. an HPC login node, additionally select the GPU architecture to compile for (see :ref:`building-cmake-gpu-archs`).
+
 
 An executable ImpactX application binary will be created in ``build/bin/``.
 Additionally, a `symbolic link <https://en.wikipedia.org/wiki/Symbolic_link>`__ named ``impactx`` can be found in that directory, which points to the last built ImpactX executable.
@@ -419,6 +421,37 @@ We also support adding `additional compiler flags via environment variables <htt
    Now call ``cmake -S . -B build`` (+ further options) again to re-initialize the build configuration.
 
 
+.. _building-cmake-gpu-archs:
+
+Select GPU Architectures
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+For Nvidia GPUs, ImpactX uses the standard CMake interface to select the CUDA architectures to compile for.
+By default, we select ``native``, i.e., CMake detects the architecture of the GPU(s) visible on the machine that runs ``cmake`` and ImpactX is built exactly for those.
+
+If no GPU is visible at configuration time (a typical situation on HPC login nodes, in containers and in CI) then configuration stops with an error and you need to select the architecture explicitly, either as a CMake option:
+
+.. code-block:: bash
+
+   cmake -S . -B build -DImpactX_COMPUTE=CUDA -DCMAKE_CUDA_ARCHITECTURES=80
+
+or as an `environment variable <https://cmake.org/cmake/help/latest/envvar/CUDAARCHS.html>`__, which is what our :ref:`HPC profiles <install-hpc>` do:
+
+.. code-block:: bash
+
+   export CUDAARCHS=80
+
+Architectures are written as integers, e.g., ``80`` for A100 (compute capability 8.0) and ``90`` for H100.
+`Multiple architectures <https://cmake.org/cmake/help/latest/prop_tgt/CUDA_ARCHITECTURES.html>`__ are separated by semicolons (``"80;90"``), and the special values ``native``, ``all`` and ``all-major`` are supported as well.
+
+.. note::
+
+   The older AMReX-specific spellings ``-DAMReX_CUDA_ARCH=8.0`` and ``export AMREX_CUDA_ARCH=8.0`` still work, but are deprecated and warn.
+   They are translated to the CMake variables above, including their historical value formats (``Auto``, ``Common``, ``Volta``, ``8.0``, ``7.0+PTX``, whitespace-separated lists).
+
+For AMD GPUs, select the architecture with ``-DAMReX_AMD_ARCH=gfx90a`` or ``export AMREX_AMD_ARCH=gfx90a``.
+
+
 CMake
 ^^^^^
 
@@ -427,6 +460,7 @@ CMake Option                    Default & Values                             Des
 =============================== ============================================ ===========================================================
 ``BUILD_TESTING``               **ON**/OFF                                   `Build tests <https://cmake.org/cmake/help/latest/module/CTest.html>`__
 ``CMAKE_BUILD_TYPE``            RelWithDebInfo/**Release**/Debug             `Type of build, symbols & optimizations <https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html>`__
+``CMAKE_CUDA_ARCHITECTURES``    **native**/all/all-major/``80``/...          `Nvidia GPU architectures to compile for <https://cmake.org/cmake/help/latest/prop_tgt/CUDA_ARCHITECTURES.html>`__ (``ImpactX_COMPUTE=CUDA``)
 ``CMAKE_INSTALL_PREFIX``        system-dependent path                        `Install path prefix <https://cmake.org/cmake/help/latest/variable/CMAKE_INSTALL_PREFIX.html>`__
 ``CMAKE_VERBOSE_MAKEFILE``      ON/**OFF**                                   `Print all compiler commands to the terminal during build <https://cmake.org/cmake/help/latest/variable/CMAKE_VERBOSE_MAKEFILE.html>`__
 ``ImpactX_APP``                 **ON**/OFF                                   Build the ImpactX executable application
@@ -512,6 +546,7 @@ Environment variables can be used to control the build step:
 Environment Variable          Default & Values                             Description
 ============================= ============================================ ================================================================
 ``IMPACTX_COMPUTE``           NOACC/**OMP**/CUDA/SYCL/HIP                  On-node, accelerated computing backend
+``CUDAARCHS``                 **native**/all/all-major/``80``/...          Nvidia GPU architectures to compile for (see :ref:`building-cmake-gpu-archs`)
 ``IMPACTX_MPI``               ON/**OFF**                                   Multi-node support (message-passing)
 ``IMPACTX_PRECISION``         SINGLE/**DOUBLE**                            Floating point precision (single/double)
 ``IMPACTX_FFT``               ON/**OFF**                                   FFT-based solvers (IGF space charge, CSR)
