@@ -38,6 +38,7 @@ def _simulate(
     max_entries,
     prob_relative_max,
     lattice="constf",
+    space_charge="3D",
     n_cell=32,
     nslice=8,
 ):
@@ -52,16 +53,24 @@ def _simulate(
     pp.add("igf_cache_max_entries", max_entries)
 
     sim = ImpactX()
-    sim.n_cell = [n_cell, n_cell, n_cell]
+    # the 2.5D solver projects the charge onto one transverse plane
+    sim.n_cell = [n_cell, n_cell, n_cell if space_charge == "3D" else 1]
+    if space_charge != "3D":
+        sim.blocking_factor_z = [1]
     sim.tiny_profiler = False
     sim.particle_shape = 2
-    sim.space_charge = "3D"
+    sim.space_charge = space_charge
     sim.poisson_solver = "fft"
     sim.prob_relative = [PROB_RELATIVE]
     sim.prob_relative_max = prob_relative_max
     sim.slice_step_diagnostics = False
     sim.diagnostics = False
     sim.verbose = 0
+    if space_charge == "2p5D":
+        # the longitudinal kick gathers the potential itself, not its gradient, so this
+        # is the mode in which the additive constant of the 2D Green's function matters
+        sim.space_charge_num_longitudinal_bins = 100
+        sim.space_charge_apply_longitudinal_kick = True
     sim.init_grids()
 
     sim.beam.ref.set_species("proton").set_kin_energy_MeV(2.0e3)
@@ -99,6 +108,7 @@ def _run(
     max_entries=8,
     prob_relative_max=1.21,
     lattice="constf",
+    space_charge="3D",
 ):
     """Run one configuration in a single-threaded subprocess."""
     env = dict(os.environ)
@@ -111,6 +121,7 @@ def _run(
         str(max_entries),
         str(prob_relative_max),
         lattice,
+        space_charge,
     ]
     proc = subprocess.run(args, env=env, capture_output=True, text=True, timeout=900)
     assert proc.returncode == 0, (
@@ -186,6 +197,48 @@ def test_reuse_survives_a_changing_mesh():
     )
 
 
+@pytest.mark.parametrize("space_charge", ["3D", "2D", "2p5D"])
+def test_reuse_holds_for_every_space_charge_model(space_charge):
+    """Each solver mode must be unaffected by reuse, 2.5D above all.
+
+    The 2.5D longitudinal kick gathers the transverse potential itself rather than its
+    gradient. The 2D integrated Green's function is homogeneous only up to an additive
+    constant, and a constant in the potential, invisible to a gradient, goes straight
+    into the longitudinal momentum. Reuse must therefore not shift it.
+    """
+    reference, _ = _run(rebuild_always=True, space_charge=space_charge)
+    reused, _ = _run(rebuild_always=False, space_charge=space_charge)
+
+    assert reference == reused, (
+        f"reuse changed the {space_charge} result: {_mismatches(reference, reused)}"
+    )
+
+
+def test_two_dimensional_modes_never_reuse_across_scales():
+    """2D and 2.5D must reuse a Green's function only at the scale it was built for.
+
+    Rescaling a 3D Green's function is exact. The 2D one picks up an additive constant
+    under a change of scale, which the 2.5D longitudinal kick would feel, so the solver
+    must decline that reuse rather than correct for it. A mesh exactly twice as large is
+    the case a 3D solver would happily reuse, so it is the one to check.
+    """
+    small, cell_small = _run(space_charge="2p5D")
+    # the same beam on a mesh a factor of two larger: a 3D solve would reuse across this
+    big, cell_big = _run(space_charge="2p5D", prob_relative_max=2.0 * PROB_RELATIVE)
+
+    ratio = cell_big[0] / cell_small[0]
+    assert ratio > 1.0, (
+        f"the two runs did not end up on different meshes (ratio {ratio!r}), so this "
+        f"test cannot see whether reuse crossed scales"
+    )
+    reference, _ = _run(
+        space_charge="2p5D", rebuild_always=True, prob_relative_max=2.0 * PROB_RELATIVE
+    )
+    assert big == reference, (
+        f"reuse changed the 2.5D result on the wider mesh: {_mismatches(reference, big)}"
+    )
+
+
 @pytest.mark.parametrize("prob_relative_max", [1.32, 1.21, 1.1495])
 def test_box_lands_on_a_fit_length(prob_relative_max):
     """The transverse mesh must be one of the allowed lengths, 2**(k/m) m.
@@ -246,8 +299,13 @@ if __name__ == "__main__":
         max_entries = int(sys.argv[3])
         prob_relative_max = float(sys.argv[4])
         lattice = sys.argv[5]
+        space_charge = sys.argv[6]
         moments, cell_size = _simulate(
-            rebuild_always, max_entries, prob_relative_max, lattice=lattice
+            rebuild_always,
+            max_entries,
+            prob_relative_max,
+            lattice=lattice,
+            space_charge=space_charge,
         )
         print(json.dumps({"moments": moments, "cell_size": cell_size}))
     else:
