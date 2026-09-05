@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 import amrex.space3d as amr
-from impactx import ImpactX, Map6x6, distribution, elements
+from impactx import Config, ImpactX, Map6x6, distribution, elements
 
 # beam and lattice parameters, shared by all runs below
 KIN_ENERGY_MEV = 250.0
@@ -342,7 +342,10 @@ def test_split_is_time_symmetric(sliceable):
     """
     residual = _roundtrip(strang_split=True, sliceable=sliceable)
 
-    assert residual < 1.0e-10, f"beam did not return: {residual:.3e}"
+    # in single precision the floor is set by the summation order of the threaded
+    # deposition: serial returns to 1.6e-7, 2 to 8 threads spread it over 6e-7 ... 1e-5
+    rtol = 1.0e-10 if Config.precision != "SINGLE" else 3.0e-5
+    assert residual < rtol, f"beam did not return: {residual:.3e}"
 
 
 @pytest.mark.parametrize(

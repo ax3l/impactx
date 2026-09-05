@@ -35,7 +35,7 @@ import warnings
 import numpy as np
 import pytest
 
-from impactx import RefPart, elements
+from impactx import Config, RefPart, elements
 from impactx.element_models import MODEL_TIERS, select_model
 from impactx.madx_to_impactx import (
     MADXImpactXTranslatorWarning,
@@ -355,7 +355,8 @@ def test_solenoid_promotion_preserves_the_reference_map(ks):
 
     linear_map = np.array(sol.transfer_map(ref)).reshape(6, 6)
     paraxial_map = np.array(acc.transfer_map(ref)).reshape(6, 6)
-    assert np.allclose(linear_map, paraxial_map, rtol=0.0, atol=1.0e-14)
+    atol = 1.0e-14 if Config.precision != "SINGLE" else 1.0e-6
+    assert np.allclose(linear_map, paraxial_map, rtol=0.0, atol=atol)
 
 
 def test_solenoid_promotion_warns_about_energy_pinning():
