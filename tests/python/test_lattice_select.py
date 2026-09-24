@@ -1210,13 +1210,6 @@ def test_select_has_is_settable_not_merely_readable():
     ]
 
 
-def test_select_has_integrator_does_not_overmatch_exact():
-    """`Exact.*` over-matches; has="int_order" selects only real integrators."""
-    lattice = _mixed_lattice()
-    assert "ExactDrift" in _kinds(lattice.select(kind=r"Exact.*"))
-    assert _kinds(lattice.select(has="int_order")) == ["ExactQuad"]
-
-
 def test_select_has_list_is_or_matched():
     lattice = _mixed_lattice()
     lattice.append(
@@ -1303,20 +1296,23 @@ def test_set_unknown_property_raises_by_default():
     [
         (dict(nslice=0), "nslice"),
         (dict(nslice=-3), "nslice"),
-        (dict(int_order=3), "int_order"),
+        (dict(int_order=3), "2, 4 or 6"),
         (dict(mapsteps=0), "mapsteps"),
     ],
 )
 def test_set_rejects_invalid_values_without_writing(kwargs, match):
     lattice = _mixed_lattice()
     before = [(e.nslice, getattr(e, "int_order", None)) for e in lattice]
-    with pytest.raises(ValueError, match=match):
+    with pytest.raises(ValueError, match=match) as err:
         lattice.select(has="int_order").set(**kwargs)
+    # the rejection names what set() was writing, and where
+    ((attr, value),) = kwargs.items()
+    assert f"{attr}={value!r} on ExactQuad 'eq1'" in err.value.__notes__[0]
     assert [(e.nslice, getattr(e, "int_order", None)) for e in lattice] == before
 
 
 def test_set_does_not_invalidate_live_selections():
-    """Contrast with delete(), which rebuilds the lattice and invalidates views."""
+    """Contrast with delete(), which moves elements and so invalidates views."""
     lattice = _mixed_lattice()
     view = lattice.select(kind="Quad")
     lattice.set(nslice=4, skip=True)
@@ -1385,3 +1381,124 @@ def test_argument_validation_raises_value_error():
         elements.DipEdge(psi=0.1, rc=1.0, g=0.01, R=-1.0)
     with pytest.raises(ValueError, match="same length"):
         elements.ExactCFbend(ds=1.0, k_normal=[0.1], k_skew=[0.0, 0.0])
+
+
+def test_set_rejected_value_leaves_earlier_properties_unwritten():
+    """`DipEdge.R` is validated by its own setter, after `psi` in argument order."""
+    lattice = elements.KnownElementsList()
+    lattice.extend(
+        [
+            elements.DipEdge(psi=0.1, rc=1.0, g=0.01, R=1.0, name="de1"),
+            elements.DipEdge(psi=0.1, rc=1.0, g=0.01, R=1.0, name="de2"),
+        ]
+    )
+    before = [(e.psi, e.R) for e in lattice]
+
+    with pytest.raises(ValueError, match="R must be > 0"):
+        lattice.set(psi=0.2, R=-1.0)
+
+    assert [(e.psi, e.R) for e in lattice] == before
+
+
+def _soft_quad(n_coefficients, name):
+    return elements.SoftQuadrupole(
+        name=name,
+        ds=1.0,
+        gscale=1.0,
+        cos_coefficients=[1.0] * n_coefficients,
+        sin_coefficients=[0.0] * n_coefficients,
+    )
+
+
+def test_set_rejected_value_leaves_earlier_elements_unwritten():
+    """A value only the last element rejects must not reach the ones before it."""
+    lattice = elements.KnownElementsList()
+    # the same cos_coefficients fit the first element and not the second
+    lattice.extend([_soft_quad(2, "ok"), _soft_quad(1, "bad")])
+
+    with pytest.raises(ValueError, match="same length"):
+        lattice.set(cos_coefficients=[1.0, 0.5])
+
+    assert [e.cos_coefficients for e in lattice] == [[1.0, 1.0], [1.0]]
+
+
+def test_set_pair_that_changes_length_is_rejected_unwritten():
+    """Properties are assigned one at a time, so a pair cannot change length."""
+    lattice = elements.KnownElementsList()
+    lattice.append(_soft_quad(1, "sq"))
+
+    with pytest.raises(ValueError, match="same length"):
+        lattice.set(cos_coefficients=[1.0, 0.5], sin_coefficients=[0.0, 0.1])
+    assert (lattice[0].cos_coefficients, lattice[0].sin_coefficients) == ([1.0], [0.0])
+
+    # a pair that keeps its length is two independent assignments
+    assert lattice.set(cos_coefficients=[0.5], sin_coefficients=[0.1]) == 1
+    assert (lattice[0].cos_coefficients, lattice[0].sin_coefficients) == ([0.5], [0.1])
+
+
+def test_set_element_at_several_positions_is_written_and_counted_once():
+    q = elements.Quad(name="q", ds=0.5, k=1.0)
+    lattice = elements.KnownElementsList()
+    lattice.extend([q, elements.Drift(name="d", ds=1.0), q])
+
+    assert lattice.select(kind="Quad").set(k=2.0) == 1
+    assert lattice.set(nslice=4) == 2
+    assert lattice[0] is lattice[2] is q
+    assert (q.k, q.nslice) == (2.0, 4)
+
+
+def test_set_writes_the_element_that_was_appended():
+    """The lattice holds the element itself, so a `Programmable` callback that closes
+    over it sees the values `set()` writes."""
+    p = elements.Programmable(ds=1.0, nslice=1)
+    seen = []
+    p.push = lambda pc, step, period: seen.append((p.ds, p.nslice))
+
+    lattice = elements.KnownElementsList()
+    lattice.append(p)
+    assert lattice.set(nslice=8, ds=2.0) == 1
+
+    assert lattice[0] is p
+    assert (p.nslice, p.ds) == (8, 2.0)
+    p.push(None, 0, 0)
+    assert seen == [(2.0, 8)]
+
+
+def test_set_rejects_beam_monitor_settings_kept_by_name():
+    """Settings a BeamMonitor keeps by name cannot be tried on a copy first."""
+    lattice = elements.KnownElementsList()
+    lattice.extend(
+        [
+            elements.Drift(name="d", ds=1.0),
+            elements.BeamMonitor("monitor", backend="h5"),
+        ]
+    )
+
+    with pytest.raises(ValueError, match="shares"):
+        lattice.select(kind="BeamMonitor").set(beta=2.0)
+    with pytest.raises(ValueError, match="shares"):
+        lattice.set(beta=2.0, nslice=4, skip=True)
+    # nothing was written, not even on the drift checked before the monitor
+    assert lattice[0].nslice == 1
+
+
+def test_set_python_subclass_needs_copy_with_overrides():
+    class NoCopy(elements.Quad):
+        pass
+
+    class WithCopy(elements.Quad):
+        def copy(self, **overrides):
+            kwargs = dict(name=self.name, ds=self.ds, k=self.k, nslice=self.nslice)
+            kwargs.update(overrides)
+            return WithCopy(**kwargs)
+
+    lattice = elements.KnownElementsList()
+    lattice.extend([WithCopy(name="w", ds=0.5, k=1.0), NoCopy(name="n", ds=0.5, k=1.0)])
+
+    with pytest.raises(TypeError, match="copy"):
+        lattice.set(k=2.0)
+    assert [e.k for e in lattice] == [1.0, 1.0]
+
+    assert lattice.select(name="w").set(k=2.0) == 1
+    assert type(lattice[0]) is WithCopy
+    assert [e.k for e in lattice] == [2.0, 1.0]

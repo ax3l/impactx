@@ -1310,30 +1310,38 @@ This module provides elements and methods for the accelerator lattice.
       Assign element properties in bulk, on every element of the lattice.
 
       Works for any settable property (``nslice``, ``int_order``, ``mapsteps``,
-      ``ds``, ``k``, ``rotation``, ``aperture_x``, ...), so no new API is needed
-      as elements gain knobs.
+      ``ds``, ``k``, ``rotation``, ``aperture_x``, ...).
 
       By default this **raises** ``AttributeError`` if any element cannot take one
       of the given properties, naming the property and the offending element
       kinds. Pass ``skip=True`` to set only where applicable, or narrow the
       selection first with ``select(has=...)``.
 
-      Assignment is all-or-nothing: values are checked, then capability is checked
-      across the whole lattice, and only then is anything written. A rejected
-      value or an unsettable element leaves every element untouched.
+      Assignment is all-or-nothing. Every write is first made on copies of the
+      elements, and only once all of them succeed on the elements themselves. A
+      value or a property that any element rejects therefore leaves every element
+      as it was.
 
-      .. note::
+      An element that sits at several positions is written once and counted once,
+      and the new value applies at each of its positions.
+      ``set`` changes parameters only, so it leaves every
+      :py:class:`~impactx.elements.FilteredElementsList` selection usable.
 
-         Unlike ``delete``, ``replace_each`` and ``replace_with_drifts``, ``set``
-         modifies elements in place instead of rebuilding the lattice, so it does
-         **not** invalidate live :py:class:`~impactx.elements.FilteredElementsList`
-         selections.
+      Properties are assigned one at a time, as ``element.<name> = value`` would.
+      A pair of parameters that has to change length together, such as
+      ``cos_coefficients`` and ``sin_coefficients``, is rejected; give such pairs to
+      each element's ``set_coefficients`` or ``set_vertices``, or build the element
+      with :ref:`copy() <element-copy>`.
+      The Twiss settings of a :py:class:`~impactx.elements.BeamMonitor` are kept by
+      monitor name rather than per element and are rejected as well; set them on the
+      monitor directly.
+      A Python subclass of an element must define ``copy(**overrides)``.
 
       :param skip: If false (default), raise ``AttributeError`` for elements that cannot take a property; if true, skip them.
       :param kwargs: Property name/value pairs to assign.
-      :return: Number of elements for which at least one property was written
+      :return: Number of distinct elements for which at least one property was written
       :rtype: int
-      :raises ValueError: If a value is invalid, e.g. ``nslice=0`` or ``int_order=3``
+      :raises ValueError: If an element rejects a value, e.g. ``nslice=0`` or ``int_order=3``
       :raises AttributeError: If ``skip`` is false and some element cannot take a property
 
       **Examples:**
@@ -1595,7 +1603,8 @@ This module provides elements and methods for the accelerator lattice.
    that structurally edits the lattice as displaced elements are released can invalidate
    that selection before the method returns. In that case, take a new selection.
 
-   :py:meth:`set` changes parameters only, so it leaves every selection usable.
+   :py:meth:`~impactx.elements.FilteredElementsList.set` changes parameters only, so it
+   leaves every selection usable.
 
    If the selection is empty, ``delete`` is a no-op, ``replace_*`` return
    an empty ``FilteredElementsList``, and ``set`` returns 0.
@@ -1613,13 +1622,12 @@ This module provides elements and methods for the accelerator lattice.
    .. py:method:: set(*, skip=False, **kwargs)
 
       Assign element properties in bulk, on the selected elements only.
-      Same semantics as :py:meth:`impactx.elements.KnownElementsList.set`.
-
-      Does **not** invalidate this or any other live selection.
+      Same semantics as :py:meth:`impactx.elements.KnownElementsList.set`, and like it,
+      leaves this and every other selection usable.
 
       :param skip: If false (default), raise ``AttributeError`` for elements that cannot take a property; if true, skip them.
       :param kwargs: Property name/value pairs to assign.
-      :return: Number of elements for which at least one property was written
+      :return: Number of distinct elements for which at least one property was written
       :rtype: int
 
       **Example:**

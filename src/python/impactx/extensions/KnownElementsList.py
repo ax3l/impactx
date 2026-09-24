@@ -312,15 +312,14 @@ class FilteredElementsList:
     def set(self, *, skip=False, **kwargs) -> int:
         """Assign element properties in bulk on the selected elements.
 
-        Unlike ``delete``, ``replace_each`` and ``replace_with_drifts``, this
-        mutates elements in place rather than rebuilding the lattice, so it does
-        **not** invalidate this or any other live selection.
+        Same semantics as :py:meth:`impactx.elements.KnownElementsList.set`. This changes
+        parameters only, so it leaves this and every other selection usable.
 
         :param skip: If false (default), raise ``AttributeError`` when any selected
                      element cannot take a given property. If true, set only where
                      applicable and silently skip the rest.
         :param kwargs: Property name/value pairs, e.g. ``nslice=8, int_order=6``.
-        :return: number of elements for which at least one property was written
+        :return: number of distinct elements for which at least one property was written
         :rtype: int
         """
         self._require_valid()
@@ -531,52 +530,44 @@ class FilteredElementsList:
         return f"FilteredElementsList({len(self)} elements)"
 
 
-# Value checks mirroring the C++ validation in the element constructors and
-# property setters, so that ``set()`` can reject a bad value before it writes to
-# any element. Keep in sync with src/elements/ and src/python/elements.cpp.
-# Properties not listed here are set without a value check.
-_SET_VALIDATORS = {
-    "nslice": (lambda v: isinstance(v, int) and v > 0, "must be an integer > 0"),
-    "int_order": (lambda v: v in (2, 4, 6), "must be 2, 4 or 6"),
-    "mapsteps": (lambda v: isinstance(v, int) and v > 0, "must be an integer > 0"),
-}
-
-
 def _set_on(elements_iter, kwargs, skip):
-    """Assign ``kwargs`` to elements, in an all-or-nothing manner.
+    """Assign ``kwargs`` to elements, in two passes: check everything, then write.
 
-    Values are validated first, then capability is checked across the whole
-    selection, and only then is anything written. A failure therefore leaves
-    every element untouched.
+    The first pass performs every planned write on copies and changes nothing. The second
+    pass performs the same writes on the elements, so a value that one of them rejects, or
+    a property that one of them does not have, leaves all of them as they were.
 
     Args:
-        elements_iter: Iterable of elements (references into a lattice)
+        elements_iter: Iterable of elements, e.g. a lattice or a selection of one
         kwargs: Property name -> value to assign
         skip: If True, silently skip elements that cannot take a property;
               if False, raise AttributeError instead
 
     Returns:
-        int: Number of elements for which at least one property was written
+        int: Number of distinct elements for which at least one property was written
 
     Raises:
-        ValueError: If a value is invalid for a known property
         AttributeError: If skip is False and some element cannot take a property
+        ValueError, TypeError: If an element rejects a value
     """
-    # 1) values are element-independent, so check them once, up front
-    for attr, value in kwargs.items():
-        check = _SET_VALIDATORS.get(attr)
-        if check is not None and not check[0](value):
-            raise ValueError(f"'{attr}' {check[1]}, got {value!r}")
+    # One entry per element: a lattice may hold the same element at several positions,
+    # and it is written once. Holding the elements rather than their positions also means
+    # that user code run below -- a subclass' copy() or property setter -- cannot redirect
+    # a write by moving elements around.
+    distinct = list({id(element): element for element in elements_iter}.values())
 
-    element_list = list(elements_iter)
+    # what to write on each element
+    plan = [
+        (element, {k: v for k, v in kwargs.items() if _is_settable(element, k)})
+        for element in distinct
+    ]
 
-    # 2) capability scan over the whole selection before writing anything
+    # 1) capability, across the whole selection
     if not skip:
         offenders = {}
-        for element in element_list:
-            for attr in kwargs:
-                if not _is_settable(element, attr):
-                    offenders.setdefault(attr, set()).add(type(element).__name__)
+        for element, applicable in plan:
+            for attr in kwargs.keys() - applicable.keys():
+                offenders.setdefault(attr, set()).add(type(element).__name__)
         if offenders:
             details = "; ".join(
                 f"'{attr}' on {', '.join(sorted(kinds))}"
@@ -586,18 +577,35 @@ def _set_on(elements_iter, kwargs, skip):
                 f"cannot set {details}. Narrow the selection with "
                 f"select(has=...), or pass skip=True to set only where applicable."
             )
+    plan = [(element, applicable) for element, applicable in plan if applicable]
 
-    # 3) apply
-    changed = 0
-    for element in element_list:
-        touched = False
-        for attr, value in kwargs.items():
-            if _is_settable(element, attr):
-                setattr(element, attr, value)
-                touched = True
-        if touched:
-            changed += 1
-    return changed
+    # 2) values, on copies. One override per copy makes each step the same single
+    #    assignment that step 3 performs, in the same order, so a value that is only
+    #    valid together with another one fails here as it would there. copy() also
+    #    refuses a property whose state the copy would share with the element (a
+    #    BeamMonitor's Twiss settings), which setting it on a copy would change.
+    for element, applicable in plan:
+        trial = element
+        for attr, value in applicable.items():
+            try:
+                trial = trial.copy(**{attr: value})
+            except Exception as err:
+                # the element's own message may not name the property it rejected
+                name = (
+                    f" '{element.name}'" if getattr(element, "has_name", False) else ""
+                )
+                err.add_note(
+                    f"set(): {attr}={value!r} on {type(element).__name__}{name}; "
+                    f"no element was changed"
+                )
+                raise
+
+    # 3) write
+    for element, applicable in plan:
+        for attr, value in applicable.items():
+            setattr(element, attr, value)
+
+    return len(plan)
 
 
 def _is_regex_pattern(pattern: str) -> bool:
@@ -809,11 +817,14 @@ def set_properties(self, *, skip=False, **kwargs) -> int:
     Named ``set_properties`` at module scope because this module also calls the
     builtin ``set(...)``; it is bound to the containers as ``set``.
 
+    Every write is first checked on copies of the elements, and only then made, so a
+    value or a property that any element rejects leaves all of them as they were.
+
     :param skip: If false (default), raise ``AttributeError`` when any selected
                  element cannot take a given property. If true, set only where
                  applicable and silently skip the rest.
     :param kwargs: Property name/value pairs, e.g. ``nslice=8, int_order=6``.
-    :return: number of elements for which at least one property was written
+    :return: number of distinct elements for which at least one property was written
     :rtype: int
     """
     return _set_on(iter(self), kwargs, skip)
