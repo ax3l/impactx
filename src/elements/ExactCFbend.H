@@ -702,7 +702,7 @@ namespace impactx::elements
                 throw std::invalid_argument("ExactCFbend: mapsteps must be > 0!");
         }
 
-        /** Radius of curvature of the reference orbit in m
+        /** Signed radius of curvature of the reference orbit in m
          *
          * Host-only: derived from the first normal coefficient, read from host storage.
          * A vanishing dipole coefficient returns 0 (no bending).
@@ -711,7 +711,7 @@ namespace impactx::elements
          */
         AMREX_GPU_HOST AMREX_FORCE_INLINE
         amrex::ParticleReal
-        rc (RefPart const & refpart) const
+        signed_rc (RefPart const & refpart) const
         {
             using namespace amrex::literals; // for _rt and _prt
 
@@ -753,7 +753,7 @@ namespace impactx::elements
             amrex::ParticleReal const s = refpart.s;
 
             // reference particle's orbital radius
-            amrex::ParticleReal const rc = this->rc(refpart);
+            amrex::ParticleReal const rc = this->signed_rc(refpart);
 
             // length of the current slice
             amrex::ParticleReal const slice_ds = m_ds / nslice();
@@ -819,7 +819,7 @@ namespace impactx::elements
             //       compute_constants() does not run on the transport-map paths (map_trace,
             //       envelope tracking, lattice.transfer_map)
             amrex::ParticleReal const brho = refpart.rigidity_Tm();
-            amrex::ParticleReal const rc = this->rc(refpart);
+            amrex::ParticleReal const rc = this->signed_rc(refpart);
             // a pure bend carries no quadrupole component, and then supplies no k_normal[1]
             amrex::ParticleReal const kn_raw = static_cast<int>(k_normal_h.size()) > 1 ? k_normal[1] : 0.0_prt;
             amrex::ParticleReal const kn = m_unit == 1 ? kn_raw / brho : kn_raw;

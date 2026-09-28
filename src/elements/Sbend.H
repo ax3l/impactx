@@ -74,9 +74,13 @@ namespace impactx::elements
         {
         }
 
+        /** Signed radius of curvature of the reference orbit in m
+         *
+         * @param refpart reference particle (unused)
+         */
         AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
         amrex::ParticleReal
-        rc ([[maybe_unused]] RefPart const & refpart) const
+        signed_rc ([[maybe_unused]] RefPart const & refpart) const
         {
             using namespace amrex::literals; // for _rt and _prt
 

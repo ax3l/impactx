@@ -156,6 +156,27 @@ namespace
         );
     }
 
+    /** Register the signed_rc() method of elements that bend the reference orbit
+     *
+     * Registered for every element deriving from @c mixin::SynchrotronRadiation, which
+     * requires it to implement @c signed_rc(refpart).
+     */
+    template<typename T_PyClass>
+    void register_signed_rc (T_PyClass & cl)
+    {
+        using Element = typename T_PyClass::type;  // py::class<T, options...>
+
+        if constexpr (elements::mixin::has_synchrotron_radiation_v<Element>) {
+            cl.def("signed_rc",
+                [](Element const & el, RefPart const & ref) { return el.signed_rc(ref); },
+                py::arg("ref"),
+                "Signed radius of curvature of the reference orbit in m.\n\n"
+                "The center of curvature lies at ``x = -signed_rc``.\n\n"
+                ":param ref: reference particle\n"
+            );
+        }
+    }
+
     /** Register push() method overloads */
     template<typename T_PyClass>
     void register_push (T_PyClass & cl)
@@ -163,6 +184,7 @@ namespace
         register_beamoptics_push(cl);
         register_envelope_push(cl);
         register_transfer_map(cl);
+        register_signed_rc(cl);
     }
 
     /** Register copy(), giving a distinct element with the same configuration
@@ -1738,10 +1760,6 @@ void init_elements(py::module& m)
              py::arg("name") = py::none(),
              "An ideal sector bend using the exact nonlinear map.  When B = 0, the reference bending radius is defined by r0 = length / (angle in rad), corresponding to a magnetic field of B = rigidity / r0; otherwise the reference bending radius is defined by r0 = rigidity / B."
         )
-        .def("rc", &ExactSbend::rc,
-            py::arg("ref"),
-            "Radius of curvature in m"
-        )
         .def_property("phi",
             [](ExactSbend & exact_sbend) { return exact_sbend.m_phi; },
             [](ExactSbend & exact_sbend, amrex::ParticleReal phi) { exact_sbend.m_phi = phi; },
@@ -2461,10 +2479,6 @@ void init_elements(py::module& m)
              py::arg("nslice") = Sbend::DEFAULT_nslice,
              py::arg("name") = py::none(),
              "An ideal sector bend."
-        )
-        .def("rc", &Sbend::rc,
-            py::arg("ref") = py::none(),
-            "Radius of curvature in m"
         )
     ;
     register_push(py_Sbend);

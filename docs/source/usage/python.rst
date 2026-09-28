@@ -1671,6 +1671,25 @@ Copying a lattice element
       original. Passing any of these as a ``copy()`` override raises ``ValueError``.
       Construct a monitor with a different name for independent settings.
 
+.. _element-signed-rc:
+
+Radius of curvature of a bend
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. py:method:: impactx.elements.Element.signed_rc(ref)
+
+   Return the signed radius of curvature of the reference orbit in m.
+   The center of curvature lies at ``x = -signed_rc``.
+
+   Available on the bends that support coherent and incoherent synchrotron radiation (CSR/ISR):
+   :py:class:`~impactx.elements.Sbend`, :py:class:`~impactx.elements.ExactSbend`,
+   :py:class:`~impactx.elements.CFbend` and :py:class:`~impactx.elements.ExactCFbend`.
+   For elements whose radius depends on the beam energy, e.g., an ``ExactSbend`` specified by its field ``B``,
+   the reference particle provides the magnetic rigidity.
+
+   :param ref: reference particle
+   :rtype: float
+
 .. _element-comparison-methods:
 
 Common comparison methods on lattice elements

@@ -41,7 +41,7 @@ namespace impactx::particles::wakefields
         return elements::visit(
             [&refpart](auto const & element) -> std::optional<amrex::Real> {
                 if constexpr (elements::mixin::has_synchrotron_radiation_v<decltype(element)>) {
-                    return std::abs(element.rc(refpart));
+                    return std::abs(element.signed_rc(refpart));
                 } else {
                     return std::nullopt;
                 }

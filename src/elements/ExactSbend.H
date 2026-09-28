@@ -87,9 +87,13 @@ namespace impactx::elements
         {
         }
 
+        /** Signed radius of curvature of the reference orbit in m
+         *
+         * @param refpart reference particle
+         */
         AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
         amrex::ParticleReal
-        rc (RefPart const & refpart) const
+        signed_rc (RefPart const & refpart) const
         {
             using namespace amrex::literals; // for _rt and _prt
 
@@ -117,7 +121,7 @@ namespace impactx::elements
             Alignment::compute_constants(refpart);
 
             // reference particle's orbital radius
-            m_rc = this->rc(refpart);
+            m_rc = this->signed_rc(refpart);
 
             // arc length and angle of the current slice
             m_slice_ds = m_ds / nslice();
@@ -279,7 +283,7 @@ namespace impactx::elements
             } else {
 
                // assign intermediate parameters
-               amrex::ParticleReal const rc = (m_B != 0_prt) ? refpart.rigidity_Tm() / m_B : m_ds / m_phi;
+               amrex::ParticleReal const rc = this->signed_rc(refpart);
                amrex::ParticleReal const B = refpart.beta_gamma() /rc;
                amrex::ParticleReal const bend_sign = m_ds * rc / std::abs(m_ds * rc);
                amrex::ParticleReal const theta = bend_sign * std::abs(m_phi) / nslice(); // sign is determined by rc*ds
@@ -340,7 +344,7 @@ namespace impactx::elements
             } else
             {
                // reference particle's orbital radius
-               amrex::ParticleReal const rc = this->rc(refpart);
+               amrex::ParticleReal const rc = this->signed_rc(refpart);
 
                // calculate expensive terms once
                amrex::ParticleReal const theta = slice_ds / rc;

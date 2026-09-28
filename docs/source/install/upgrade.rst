@@ -154,6 +154,23 @@ They have been finalized by then, so keeping them would leave elements that are 
 e.g., a :py:class:`~impactx.elements.BeamMonitor` with its output closed, still in the
 lattice.
 
+Bends: ``rc(ref)`` is now ``signed_rc(ref)``
+""""""""""""""""""""""""""""""""""""""""""""
+
+The method returning the signed radius of curvature of the reference orbit is now called
+``signed_rc(ref)``, and it is available on every bend with synchrotron radiation support:
+:py:class:`~impactx.elements.Sbend`, :py:class:`~impactx.elements.ExactSbend`,
+:py:class:`~impactx.elements.CFbend` and :py:class:`~impactx.elements.ExactCFbend`.
+
+**What to check in your scripts:** calls of ``.rc(ref)`` on an ``Sbend`` or ``ExactSbend``.
+
+.. code-block:: python
+
+   radius = bend.signed_rc(ref)    # was: bend.rc(ref)
+
+The ``rc`` parameter properties of :py:class:`~impactx.elements.CFbend`,
+:py:class:`~impactx.elements.DipEdge` and :py:class:`~impactx.elements.ThinDipole` are unchanged.
+
 New in this release
 """""""""""""""""""
 
