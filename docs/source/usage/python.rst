@@ -210,7 +210,7 @@ Collective Effects & Overall Simulation Parameters
 
       .. note::
 
-         CSR effects are only calculated for lattice elements that include bending, such as ``Sbend``, ``ExactSbend`` and ``CFbend``.
+         CSR effects are only calculated for lattice elements that bend the reference orbit: ``Sbend``, ``ExactSbend``, ``CFbend`` and ``ExactCFbend``.
 
          CSR effects require the compilation flag ``-DImpactX_FFT=ON``.
 
@@ -236,7 +236,7 @@ Collective Effects & Overall Simulation Parameters
 
       .. note::
 
-         ISR effects are only calculated for lattice elements that include bending, such as ``Sbend``, ``ExactSbend`` and ``CFbend``.
+         ISR effects are only calculated for lattice elements that bend the reference orbit: ``Sbend``, ``ExactSbend``, ``CFbend`` and ``ExactCFbend``.
 
    .. py:property:: isr_order
 

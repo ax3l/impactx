@@ -18,6 +18,7 @@
 #include "helper/ArrayValidation.H"
 #include "mixin/lineartransport.H"
 #include "mixin/spintransport.H"
+#include "mixin/synchrotronradiation.H"
 #include "mixin/pipeaperture.H"
 #include "mixin/thick.H"
 
@@ -648,6 +649,7 @@ namespace impactx::elements
     struct ExactCFbendGPU
     : public mixin::BeamOptic<ExactCFbendGPU>,
       public mixin::LinearTransport<ExactCFbendGPU>,
+      public mixin::SynchrotronRadiation,
       public ExactCFbendPusher
     {
         /** A general (thick) combined-function sector dipole whose field consists
@@ -700,6 +702,26 @@ namespace impactx::elements
                 throw std::invalid_argument("ExactCFbend: mapsteps must be > 0!");
         }
 
+        /** Radius of curvature of the reference orbit in m
+         *
+         * Host-only: derived from the first normal coefficient, read from host storage.
+         * A vanishing dipole coefficient returns 0 (no bending).
+         *
+         * @param refpart reference particle
+         */
+        AMREX_GPU_HOST AMREX_FORCE_INLINE
+        amrex::ParticleReal
+        rc (RefPart const & refpart) const
+        {
+            using namespace amrex::literals; // for _rt and _prt
+
+            amrex::ParticleReal const k0 = m_coefficients.k_normal.host_const()[0];
+
+            // find magnetic field and curvature; normalize units to MAD-X convention if needed
+            amrex::ParticleReal const curvature = m_unit == 1 ? k0 / refpart.rigidity_Tm() : k0;
+            return curvature == 0_prt ? 0_prt : 1_prt / curvature;
+        }
+
         /** Push all particles */
         using mixin::BeamOptic<ExactCFbendGPU>::operator();
 
@@ -729,13 +751,9 @@ namespace impactx::elements
             amrex::ParticleReal const t = refpart.t;
             amrex::ParticleReal const pt = refpart.pt;
             amrex::ParticleReal const s = refpart.s;
-            amrex::ParticleReal const brho = refpart.rigidity_Tm();
 
-            // host view, obtained at the point of use
-            amrex::ParticleReal const * k_normal = m_coefficients.k_normal.host_const().data();
-            // find magnetic field and curvature; normalize units to MAD-X convention if needed
-            amrex::ParticleReal const curvature = m_unit == 1 ? k_normal[0] / brho : k_normal[0];
-            amrex::ParticleReal const rc = curvature == 0.0 ? 0.0_prt : 1.0_prt/curvature;
+            // reference particle's orbital radius
+            amrex::ParticleReal const rc = this->rc(refpart);
 
             // length of the current slice
             amrex::ParticleReal const slice_ds = m_ds / nslice();
@@ -796,15 +814,12 @@ namespace impactx::elements
             auto const & k_normal_h = m_coefficients.k_normal.host_const();
             amrex::ParticleReal const * k_normal = k_normal_h.data();
 
-            // find magnetic field and curvature; normalize units to MAD-X convention if needed
-            // magnetic rigidity of the reference particle
-            // note: read from the reference particle and not from the cached m_brho, because
+            // magnetic rigidity and orbital radius of the reference particle
+            // note: read from the reference particle and not from the cached m_brho/m_rc, because
             //       compute_constants() does not run on the transport-map paths (map_trace,
             //       envelope tracking, lattice.transfer_map)
             amrex::ParticleReal const brho = refpart.rigidity_Tm();
-
-            amrex::ParticleReal const curvature = m_unit == 1 ? k_normal[0] / brho : k_normal[0];
-            amrex::ParticleReal const rc = curvature == 0.0 ? 0.0_prt : 1.0_prt/curvature;
+            amrex::ParticleReal const rc = this->rc(refpart);
             // a pure bend carries no quadrupole component, and then supplies no k_normal[1]
             amrex::ParticleReal const kn_raw = static_cast<int>(k_normal_h.size()) > 1 ? k_normal[1] : 0.0_prt;
             amrex::ParticleReal const kn = m_unit == 1 ? kn_raw / brho : kn_raw;

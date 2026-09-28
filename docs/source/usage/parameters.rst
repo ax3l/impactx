@@ -2701,7 +2701,7 @@ Currently, this is the 1D ultrarelativistic steady-state wakefield model (eq. 19
 
 .. note::
 
-   CSR effects are only calculated for lattice elements that include bending, such as ``Sbend``, ``ExactSbend`` and ``CFbend``.
+   CSR effects are only calculated for lattice elements that bend the reference orbit: ``Sbend``, ``ExactSbend``, ``CFbend`` and ``ExactCFbend``.
 
    CSR effects require the compilation flag ``-DImpactX_FFT=ON``.
 
@@ -2746,7 +2746,7 @@ However, a Taylor expansion is used to evaluate the dependence on the quantum pa
 
 .. note::
 
-   ISR effects are only calculated for lattice elements that include bending, such as ``Sbend``, ``ExactSbend`` and ``CFbend``.
+   ISR effects are only calculated for lattice elements that bend the reference orbit: ``Sbend``, ``ExactSbend``, ``CFbend`` and ``ExactCFbend``.
 
 
 .. _running-cpp-parameters-particle-bc:
