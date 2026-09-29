@@ -177,6 +177,94 @@ namespace
         }
     }
 
+    /** Warn about the legacy way of leaving B unset: a bend angle together with B = 0
+     *
+     * @param rc radius of curvature in m, if given
+     * @param phi bend angle in degrees, if given
+     * @param B magnetic field in T, if given
+     */
+    void warn_legacy_unset_B (
+        std::optional<amrex::ParticleReal> rc,
+        std::optional<amrex::ParticleReal> phi,
+        std::optional<amrex::ParticleReal> B
+    )
+    {
+        if (elements::mixin::BendGeometry::is_legacy_unset_B(rc, phi, B)) {
+            py::warnings::warn(
+                "B=0.0 together with phi is deprecated and read as phi alone. "
+                "Leave B unset (B=None) instead.",
+                PyExc_DeprecationWarning,
+                2
+            );
+        }
+    }
+
+    /** Register the geometry parameters of elements that bend the reference orbit
+     *
+     * Registered for every element deriving from @c mixin::BendGeometry: the properties
+     * rc, phi and B, and set_geometry() to change how the bend is specified.
+     */
+    template<typename T_PyClass>
+    void register_bend_geometry (T_PyClass & cl)
+    {
+        using Element = typename T_PyClass::type;  // py::class<T, options...>
+
+        if constexpr (elements::mixin::has_bend_geometry_v<Element>) {
+            auto const set = [](Element & el, char const * name, std::optional<amrex::ParticleReal> value) {
+                if (!value.has_value()) {
+                    throw std::invalid_argument(
+                        std::string(Element::type) + ": " + name + " cannot be set to None. "
+                        "Use set_geometry() to change how the bend is specified.");
+                }
+                el.set_parameter(Element::type, name, *value);
+            };
+
+            cl.def_property("rc",
+                [](Element const & el) { return el.rc_parameter(); },
+                [set](Element & el, std::optional<amrex::ParticleReal> rc) { set(el, "rc", rc); },
+                "Radius of curvature in m, or None if the bend is not specified by it"
+            )
+            .def_property("phi",
+                [](Element const & el) { return el.phi_parameter(); },
+                [set](Element & el, std::optional<amrex::ParticleReal> phi) { set(el, "phi", phi); },
+                "Bend angle in degrees, or None if the bend is not specified by it"
+            )
+            .def_property("B",
+                [](Element const & el) { return el.B_parameter(); },
+                [set](Element & el, std::optional<amrex::ParticleReal> B) { set(el, "B", B); },
+                "Magnetic field in T, or None if the bend is not specified by it"
+            )
+            .def("set_geometry",
+                [](Element & el, py::kwargs const & kwargs) {
+                    auto rc = el.rc_parameter();
+                    auto phi = el.phi_parameter();
+                    auto B = el.B_parameter();
+                    for (auto const & item : kwargs) {
+                        auto const key = py::str(item.first).cast<std::string>();
+                        auto const value = item.second.is_none()
+                            ? std::nullopt
+                            : std::optional<amrex::ParticleReal>(item.second.cast<amrex::ParticleReal>());
+                        if (key == "rc") { rc = value; }
+                        else if (key == "phi") { phi = value; }
+                        else if (key == "B") { B = value; }
+                        else {
+                            throw py::type_error(
+                                "set_geometry() got an unexpected keyword argument '" + key +
+                                "'; expected rc, phi or B");
+                        }
+                    }
+                    warn_legacy_unset_B(rc, phi, B);
+                    el.set_geometry(Element::type, rc, phi, B);
+                },
+                "Change how the bend is specified.\n\n"
+                "Keyword arguments rc (m), phi (degrees) and B (T) replace the current values;\n"
+                "None removes one. The result must be exactly one of rc, phi or B, or phi\n"
+                "together with B, e.g.::\n\n"
+                "    bend.set_geometry(rc=None, phi=10.0)\n"
+            );
+        }
+    }
+
     /** Register push() method overloads */
     template<typename T_PyClass>
     void register_push (T_PyClass & cl)
@@ -185,6 +273,7 @@ namespace
         register_envelope_push(cl);
         register_transfer_map(cl);
         register_signed_rc(cl);
+        register_bend_geometry(cl);
     }
 
     /** Register copy(), giving a distinct element with the same configuration
@@ -235,6 +324,19 @@ namespace
                         remaining.attr("pop")(pair[0]);
                         remaining.attr("pop")(pair[1]);
                     }
+                }
+
+                // The geometry of a bend is one specification of rc, phi and B, changed
+                // together, so that e.g. copy(rc=None, phi=10.0) switches from one to the other.
+                if constexpr (elements::mixin::has_bend_geometry_v<Element>)
+                {
+                    py::dict geometry;
+                    for (char const * key : {"rc", "phi", "B"}) {
+                        if (remaining.contains(key)) {
+                            geometry[key] = remaining.attr("pop")(key);
+                        }
+                    }
+                    if (!geometry.empty()) { copied.attr("set_geometry")(**geometry); }
                 }
 
                 // Apply the rest one at a time. Setting a parameter the element does not
@@ -384,6 +486,15 @@ namespace
         if constexpr (elements::mixin::is_thick_v<T_Element>) {
             extra_args.append(format_extra(std::make_pair("ds", el.ds())));
         }
+        if constexpr (elements::mixin::has_bend_geometry_v<T_Element>) {
+            for (auto const & [key, value] : {
+                std::make_pair("rc", el.rc_parameter()),
+                std::make_pair("phi", el.phi_parameter()),
+                std::make_pair("B", el.B_parameter())
+            }) {
+                if (value.has_value()) { extra_args.append(format_extra(std::make_pair(key, *value))); }
+            }
+        }
 
         // select properties specific to the element
         ((extra_args.append(format_extra(args))), ...);
@@ -461,9 +572,19 @@ namespace
             ret.insert(std::make_pair("aperture_x", el.aperture_x()));
             ret.insert(std::make_pair("aperture_y", el.aperture_y()));
         }
+        if constexpr (elements::mixin::has_bend_geometry_v<T_Element>) {
+            // the parameters that do not specify this bend are None
+            for (auto const & [key, value] : {
+                std::make_pair("rc", el.rc_parameter()),
+                std::make_pair("phi", el.phi_parameter()),
+                std::make_pair("B", el.B_parameter())
+            }) {
+                ret[key] = value.has_value() ? ElementPropertyTypes(*value) : ElementPropertyTypes(py::none());
+            }
+        }
 
-        // properties specific to the element
-        ((ret.insert(args)), ...);
+        // properties specific to the element (they take precedence over the mixin ones)
+        ((ret[args.first] = args.second), ...);
 
         return ret;
     }
@@ -1702,22 +1823,14 @@ void init_elements(py::module& m)
     py_ExactSbend
         .def("__repr__",
              [](ExactSbend const & exact_sbend) {
-                 return element_name(
-                     exact_sbend,
-                     std::make_pair("phi", exact_sbend.m_phi / ExactSbend::degree2rad),
-                     std::make_pair("B", exact_sbend.m_B)
-                 );
+                 return element_name(exact_sbend);
              }
         )
         .def("to_dict",
             [](ExactSbend const & exact_sbend, bool in_degrees) {
                 if (in_degrees) {
-                    return element_dict(
-                        exact_sbend,
-                        std::make_pair("phi", exact_sbend.m_phi / ExactSbend::degree2rad),
-                                                                   // once fixed, update src/python/impactx/extensions/KnownElementsList.py
-                        std::make_pair("B", exact_sbend.m_B)
-                    );
+                    // once fixed, update src/python/impactx/extensions/KnownElementsList.py
+                    return element_dict(exact_sbend);
                 } else {
                     // legacy: buggy radians instead of degrees
                     py::warnings::warn(
@@ -1727,30 +1840,38 @@ void init_elements(py::module& m)
                         PyExc_RuntimeWarning,
                         2
                     );
+                    auto const phi = exact_sbend.phi_parameter();
                     return element_dict(
                         exact_sbend,
-                        std::make_pair("phi", exact_sbend.m_phi),  // BUG: constructor is in degrees
-                        std::make_pair("B", exact_sbend.m_B)
+                        // BUG: constructor is in degrees
+                        std::make_pair("phi", phi.has_value()
+                            ? ElementPropertyTypes(*phi * ExactSbend::degree2rad)
+                            : ElementPropertyTypes(py::none()))
                     );
                 }
             },
             py::arg("in_degrees") = false
         )
-        .def(py::init<
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                int,
-                std::optional<std::string>
-             >(),
+        .def(py::init([](
+                amrex::ParticleReal ds,
+                std::optional<amrex::ParticleReal> phi,
+                std::optional<amrex::ParticleReal> B,
+                std::optional<amrex::ParticleReal> rc,
+                amrex::ParticleReal dx,
+                amrex::ParticleReal dy,
+                amrex::ParticleReal rotation_degree,
+                amrex::ParticleReal aperture_x,
+                amrex::ParticleReal aperture_y,
+                int nslice,
+                std::optional<std::string> name
+             ) {
+                 warn_legacy_unset_B(rc, phi, B);
+                 return ExactSbend(ds, phi, B, rc, dx, dy, rotation_degree, aperture_x, aperture_y, nslice, name);
+             }),
              py::arg("ds"),
-             py::arg("phi"),
-             py::arg("B") = ExactSbend::DEFAULT_B,
+             py::arg("phi") = py::none(),
+             py::arg("B") = py::none(),
+             py::arg("rc") = py::none(),
              py::arg("dx") = ExactSbend::DEFAULT_dx,
              py::arg("dy") = ExactSbend::DEFAULT_dy,
              py::arg("rotation") = ExactSbend::DEFAULT_rotation_degree,
@@ -1758,29 +1879,28 @@ void init_elements(py::module& m)
              py::arg("aperture_y") = ExactSbend::DEFAULT_aperture_y,
              py::arg("nslice") = ExactSbend::DEFAULT_nslice,
              py::arg("name") = py::none(),
-             "An ideal sector bend using the exact nonlinear map.  When B = 0, the reference bending radius is defined by r0 = length / (angle in rad), corresponding to a magnetic field of B = rigidity / r0; otherwise the reference bending radius is defined by r0 = rigidity / B."
-        )
-        .def_property("phi",
-            [](ExactSbend & exact_sbend) { return exact_sbend.m_phi; },
-            [](ExactSbend & exact_sbend, amrex::ParticleReal phi) { exact_sbend.m_phi = phi; },
-            "Bend angle in radian"
-        )
-        /* BUG, should be in degrees like this:
-        .def_property("phi",
-            [](ExactSbend & exact_sbend) { return exact_sbend.m_phi / ExactSbend::degree2rad; },
-            [](ExactSbend & exact_sbend, amrex::ParticleReal phi_deg) {
-                exact_sbend.m_phi = phi_deg * ExactSbend::degree2rad;
-            },
-            "Bend angle in degrees"
-        )
-        */
-        .def_property("B",
-            [](ExactSbend & exact_sbend) { return exact_sbend.m_B; },
-            [](ExactSbend & exact_sbend, amrex::ParticleReal B) { exact_sbend.m_B = B; },
-            "Magnetic field in Tesla; when B = 0 (default), the reference bending radius is defined by r0 = length / (angle in rad), corresponding to a magnetic field of B = rigidity / r0; otherwise the reference bending radius is defined by r0 = rigidity / B"
+             "An ideal sector bend using the exact nonlinear map.\n\n"
+             "Specified by exactly one of rc (m), phi (degrees) or B (T), or by phi together with B."
         )
     ;
     register_push(py_ExactSbend);
+    // BUG: in radians, while the constructor takes degrees; replaces the generic property
+    py_ExactSbend.def_property("phi",
+        [](ExactSbend const & exact_sbend) -> std::optional<amrex::ParticleReal> {
+            auto const phi = exact_sbend.phi_parameter();
+            if (!phi.has_value()) { return std::nullopt; }
+            return *phi * ExactSbend::degree2rad;
+        },
+        [](ExactSbend & exact_sbend, std::optional<amrex::ParticleReal> phi) {
+            if (!phi.has_value()) {
+                throw std::invalid_argument(
+                    "ExactSbend: phi cannot be set to None. "
+                    "Use set_geometry() to change how the bend is specified.");
+            }
+            exact_sbend.set_parameter(ExactSbend::type, "phi", *phi / ExactSbend::degree2rad);
+        },
+        "Bend angle in radian, or None if the bend is not specified by it"
+    );
     register_reverse(py_ExactSbend);
     register_copy(py_ExactSbend);
 
@@ -2444,33 +2564,34 @@ void init_elements(py::module& m)
     py_Sbend
         .def("__repr__",
              [](Sbend const & sbend) {
-                 return element_name(
-                     sbend,
-                     std::make_pair("rc", sbend.m_rc)
-                 );
+                 return element_name(sbend);
              }
         )
         .def("to_dict",
             [](Sbend const & sbend) {
-                return element_dict(
-                    sbend,
-                    std::make_pair("rc", sbend.m_rc)
-                );
+                return element_dict(sbend);
             }
         )
-        .def(py::init<
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                int,
-                std::optional<std::string>
-             >(),
+        .def(py::init([](
+                amrex::ParticleReal ds,
+                std::optional<amrex::ParticleReal> rc,
+                std::optional<amrex::ParticleReal> phi,
+                std::optional<amrex::ParticleReal> B,
+                amrex::ParticleReal dx,
+                amrex::ParticleReal dy,
+                amrex::ParticleReal rotation_degree,
+                amrex::ParticleReal aperture_x,
+                amrex::ParticleReal aperture_y,
+                int nslice,
+                std::optional<std::string> name
+             ) {
+                 warn_legacy_unset_B(rc, phi, B);
+                 return Sbend(ds, rc, phi, B, dx, dy, rotation_degree, aperture_x, aperture_y, nslice, name);
+             }),
              py::arg("ds"),
-             py::arg("rc"),
+             py::arg("rc") = py::none(),
+             py::arg("phi") = py::none(),
+             py::arg("B") = py::none(),
              py::arg("dx") = Sbend::DEFAULT_dx,
              py::arg("dy") = Sbend::DEFAULT_dy,
              py::arg("rotation") = Sbend::DEFAULT_rotation_degree,
@@ -2478,7 +2599,8 @@ void init_elements(py::module& m)
              py::arg("aperture_y") = Sbend::DEFAULT_aperture_y,
              py::arg("nslice") = Sbend::DEFAULT_nslice,
              py::arg("name") = py::none(),
-             "An ideal sector bend."
+             "An ideal sector bend.\n\n"
+             "Specified by exactly one of rc (m), phi (degrees) or B (T), or by phi together with B."
         )
     ;
     register_push(py_Sbend);
@@ -2491,7 +2613,6 @@ void init_elements(py::module& m)
              [](CFbend const & cfbend) {
                  return element_name(
                      cfbend,
-                     std::make_pair("rc", cfbend.m_rc),
                      std::make_pair("k", cfbend.m_k)
                  );
              }
@@ -2500,26 +2621,32 @@ void init_elements(py::module& m)
             [](CFbend const & cfbend) {
                 return element_dict(
                     cfbend,
-                    std::make_pair("rc", cfbend.m_rc),
                     std::make_pair("k", cfbend.m_k)
                 );
             }
         )
-        .def(py::init<
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                amrex::ParticleReal,
-                int,
-                std::optional<std::string>
-             >(),
+        .def(py::init([](
+                amrex::ParticleReal ds,
+                std::optional<amrex::ParticleReal> rc,
+                amrex::ParticleReal k,
+                std::optional<amrex::ParticleReal> phi,
+                std::optional<amrex::ParticleReal> B,
+                amrex::ParticleReal dx,
+                amrex::ParticleReal dy,
+                amrex::ParticleReal rotation_degree,
+                amrex::ParticleReal aperture_x,
+                amrex::ParticleReal aperture_y,
+                int nslice,
+                std::optional<std::string> name
+             ) {
+                 warn_legacy_unset_B(rc, phi, B);
+                 return CFbend(ds, rc, k, phi, B, dx, dy, rotation_degree, aperture_x, aperture_y, nslice, name);
+             }),
              py::arg("ds"),
-             py::arg("rc"),
+             py::arg("rc") = py::none(),
              py::arg("k"),
+             py::arg("phi") = py::none(),
+             py::arg("B") = py::none(),
              py::arg("dx") = CFbend::DEFAULT_dx,
              py::arg("dy") = CFbend::DEFAULT_dy,
              py::arg("rotation") = CFbend::DEFAULT_rotation_degree,
@@ -2527,12 +2654,8 @@ void init_elements(py::module& m)
              py::arg("aperture_y") = CFbend::DEFAULT_aperture_y,
              py::arg("nslice") = CFbend::DEFAULT_nslice,
              py::arg("name") = py::none(),
-             "An ideal combined function bend (sector bend with quadrupole component)."
-        )
-        .def_property("rc",
-            [](CFbend & cfbend) { return cfbend.m_rc; },
-            [](CFbend & cfbend, amrex::ParticleReal rc) { cfbend.m_rc = rc; },
-            "Radius of curvature in m"
+             "An ideal combined function bend (sector bend with quadrupole component).\n\n"
+             "Specified by exactly one of rc (m), phi (degrees) or B (T), or by phi together with B."
         )
         .def_property("k",
             [](CFbend & cfbend) { return cfbend.m_k; },

@@ -48,6 +48,14 @@ else:
 # standard SINGLE phase tolerance there.
 TIGHT_PHASE_ATOL = 1e-8 if Config.precision != "SINGLE" else phase_atol
 
+# the ways to specify the geometry of a bend, for a radius of about 10 m (ds=0.5 m)
+BEND_GEOMETRIES = {
+    "rc": dict(rc=-10.346),
+    "phi": dict(phi=2.769),
+    "B": dict(B=0.45),
+    "phi_B": dict(phi=10.0, B=0.45),
+}
+
 
 @pytest.fixture(scope="function")
 def sim(request):
@@ -272,14 +280,17 @@ def roundtrip(
 # =============================================================================
 
 
+@pytest.mark.parametrize(
+    "geometry", BEND_GEOMETRIES.values(), ids=BEND_GEOMETRIES.keys()
+)
 @pytest.mark.parametrize("sim", [True, False], indirect=True, ids=["spin", "nospin"])
-def test_CFbend(sim):
+def test_CFbend(sim, geometry):
     roundtrip(
         elements.CFbend(
             ds=0.5,
-            rc=7.613657587094493,
             k=-7.057403,
             nslice=nslice,
+            **geometry,
             **PIPE_KWARGS,
         ),
         sim,
@@ -453,10 +464,13 @@ def test_ExactQuad(sim, unit, k):
     )
 
 
+@pytest.mark.parametrize(
+    "geometry", BEND_GEOMETRIES.values(), ids=BEND_GEOMETRIES.keys()
+)
 @pytest.mark.parametrize("sim", [True, False], indirect=True, ids=["spin", "nospin"])
-def test_ExactSbend(sim):
+def test_ExactSbend(sim, geometry):
     roundtrip(
-        elements.ExactSbend(ds=1.0, phi=10.0, B=0.45, nslice=nslice, **PIPE_KWARGS),
+        elements.ExactSbend(ds=0.5, nslice=nslice, **geometry, **PIPE_KWARGS),
         sim,
         spin=sim.spin,
     )
@@ -471,10 +485,13 @@ def test_Quad(sim):
     )
 
 
+@pytest.mark.parametrize(
+    "geometry", BEND_GEOMETRIES.values(), ids=BEND_GEOMETRIES.keys()
+)
 @pytest.mark.parametrize("sim", [True, False], indirect=True, ids=["spin", "nospin"])
-def test_Sbend(sim):
+def test_Sbend(sim, geometry):
     roundtrip(
-        elements.Sbend(ds=0.5, rc=-10.346, nslice=nslice, **PIPE_KWARGS),
+        elements.Sbend(ds=0.5, nslice=nslice, **geometry, **PIPE_KWARGS),
         sim,
         spin=sim.spin,
     )

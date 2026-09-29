@@ -171,6 +171,39 @@ The method returning the signed radius of curvature of the reference orbit is no
 The ``rc`` parameter properties of :py:class:`~impactx.elements.CFbend`,
 :py:class:`~impactx.elements.DipEdge` and :py:class:`~impactx.elements.ThinDipole` are unchanged.
 
+Bends: ``rc``, ``phi`` or ``B``
+"""""""""""""""""""""""""""""""
+
+:py:class:`~impactx.elements.Sbend`, :py:class:`~impactx.elements.ExactSbend` and :py:class:`~impactx.elements.CFbend`
+are all specified by ``ds`` plus exactly one of ``rc``, ``phi`` or ``B``, or by ``phi`` together with ``B``
+(:ref:`element-bend-geometry`). The parameters that do not specify a bend are ``None``.
+
+**What to check in your scripts:**
+
+* ``B=0.0`` passed together with ``phi`` to leave the field unset. This still works, with a ``DeprecationWarning``;
+  leave ``B`` out instead. The same holds for ``<name>.B = 0`` in input files.
+
+  .. code-block:: python
+
+     elements.ExactSbend(ds=0.5, phi=10.0)  # was: phi=10.0, B=0.0
+
+* Reading ``ExactSbend.B``, or ``B`` from its ``to_dict()``: it is ``None`` rather than ``0.0`` for a bend specified by ``phi``.
+* Assigning a parameter that does not specify the bend, e.g., ``bend.phi = 5.0`` on a bend specified by ``rc``, raises.
+  Use :py:meth:`~impactx.elements.Element.set_geometry`:
+
+  .. code-block:: python
+
+     bend.set_geometry(rc=None, phi=5.0)
+
+* ``ExactSbend.copy(phi=...)`` takes degrees, like the constructor.
+  It previously set radians.
+
+An ``ExactSbend`` specified by ``phi`` together with ``B`` uses its bend angle and the radius from the field in all maps.
+Its linear transfer map, used in envelope tracking, previously used ``ds / rc`` as the angle instead.
+
+A bend with ``rc = 0``, ``phi = 0`` or ``B = 0`` is straight: :py:meth:`~impactx.elements.Element.signed_rc` returns ``inf``,
+and CSR and ISR are not applied in it.
+
 New in this release
 """""""""""""""""""
 

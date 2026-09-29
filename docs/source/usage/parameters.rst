@@ -525,6 +525,7 @@ This requires these additional parameters:
 
 ``cfbend`` for a combined function bending magnet,
 e.g. for an element ``<cfbend_name>.type = cfbend``.
+The bend is specified by exactly one of ``rc``, ``phi`` or ``B``, or by ``phi`` together with ``B``, see :ref:`element-bend-geometry`.
 This requires these additional parameters:
 
 .. pp:param:: <cfbend_name>.ds
@@ -537,7 +538,19 @@ This requires these additional parameters:
     :type: ``float``
     :unit: m
 
-    The bend radius.
+    The radius of curvature.
+
+.. pp:param:: <cfbend_name>.phi
+    :type: ``float``
+    :unit: degree
+
+    The bend angle.
+
+.. pp:param:: <cfbend_name>.B
+    :type: ``float``
+    :unit: T
+
+    The magnetic field.
 
 .. pp:param:: <cfbend_name>.k
     :type: ``float``
@@ -1826,6 +1839,7 @@ This element is defined via ``<rfcavity_name>.type = rfcavity`` and requires the
 
 ``sbend`` for a bending magnet,
 e.g. for an element ``<sbend_name>.type = sbend``.
+The bend is specified by exactly one of ``rc``, ``phi`` or ``B``, or by ``phi`` together with ``B``, see :ref:`element-bend-geometry`.
 This requires these additional parameters:
 
 .. pp:param:: <sbend_name>.ds
@@ -1838,7 +1852,19 @@ This requires these additional parameters:
     :type: ``float``
     :unit: m
 
-    The bend radius.
+    The radius of curvature.
+
+.. pp:param:: <sbend_name>.phi
+    :type: ``float``
+    :unit: degree
+
+    The bend angle.
+
+.. pp:param:: <sbend_name>.B
+    :type: ``float``
+    :unit: T
+
+    The magnetic field.
 
 .. pp:param:: <sbend_name>.dx/dy
     :link_aliases: <sbend_name>.dx <sbend_name>.dy
@@ -1874,13 +1900,21 @@ This requires these additional parameters:
 D. L. Bruhwiler et al., in Proc. of EPAC 98, pp. 1171-1173 (1998), E. Forest et al., Part. Accel. 45, pp. 65-94 (1994).  The model
 consists of a uniform bending field B_y with a hard edge.  Pole faces are normal to the entry and exit velocity of the reference
 particle.
-This element is defined via ``<sbend_exact_name>.type = sbend_exact`` and requires these additional parameters:
+This element is defined via ``<sbend_exact_name>.type = sbend_exact``.
+The bend is specified by exactly one of ``rc``, ``phi`` or ``B``, or by ``phi`` together with ``B``, see :ref:`element-bend-geometry`.
+This requires these additional parameters:
 
 .. pp:param:: <sbend_exact_name>.ds
     :type: ``float``
     :unit: m
 
     The segment length.
+
+.. pp:param:: <sbend_exact_name>.rc
+    :type: ``float``
+    :unit: m
+
+    The radius of curvature.
 
 .. pp:param:: <sbend_exact_name>.phi
     :type: ``float``
@@ -1891,9 +1925,8 @@ This element is defined via ``<sbend_exact_name>.type = sbend_exact`` and requir
 .. pp:param:: <sbend_exact_name>.B
     :type: ``float``
     :unit: T
-    :default: ``0``
 
-    The bend magnetic field; when ``B = 0`` (default), the reference bending radius is defined by r0 = length / (angle in rad), corresponding to a magnetic field of B = rigidity / r0; otherwise the reference bending radius is defined by r0 = rigidity / B.
+    The magnetic field.
 
 .. pp:param:: <sbend_exact_name>.dx/dy
     :link_aliases: <sbend_exact_name>.dx <sbend_exact_name>.dy

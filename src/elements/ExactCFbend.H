@@ -30,6 +30,7 @@
 #include <AMReX_TrackedVector.H>
 
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <vector>
@@ -705,7 +706,7 @@ namespace impactx::elements
         /** Signed radius of curvature of the reference orbit in m
          *
          * Host-only: derived from the first normal coefficient, read from host storage.
-         * A vanishing dipole coefficient returns 0 (no bending).
+         * A vanishing dipole coefficient (no bending) returns +infinity.
          *
          * @param refpart reference particle
          */
@@ -719,7 +720,8 @@ namespace impactx::elements
 
             // find magnetic field and curvature; normalize units to MAD-X convention if needed
             amrex::ParticleReal const curvature = m_unit == 1 ? k0 / refpart.rigidity_Tm() : k0;
-            return curvature == 0_prt ? 0_prt : 1_prt / curvature;
+            return curvature == 0_prt ? std::numeric_limits<amrex::ParticleReal>::infinity()
+                                      : 1_prt / curvature;
         }
 
         /** Push all particles */
@@ -759,7 +761,7 @@ namespace impactx::elements
             amrex::ParticleReal const slice_ds = m_ds / nslice();
 
             // special case of zero field = an exact drift
-            if (rc==0_prt) {
+            if (std::isinf(rc)) {
                // advance position and momentum (drift)
                amrex::ParticleReal const step = slice_ds / std::sqrt(amrex::Math::powi<2>(pt) - 1.0_prt);
                refpart.x = x + step*px;

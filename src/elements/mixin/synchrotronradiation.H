@@ -20,7 +20,8 @@ namespace impactx::elements::mixin
      *
      * If an element derives from this class, then it must implement ``signed_rc(refpart)``,
      * the signed radius of curvature of the reference orbit in m. The center of curvature
-     * lies at ``x = -signed_rc``.
+     * lies at ``x = -signed_rc``; a straight element returns +infinity, and no synchrotron
+     * radiation is applied in it.
      */
     struct SynchrotronRadiation
     {

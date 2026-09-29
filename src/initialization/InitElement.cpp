@@ -24,6 +24,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -123,6 +124,42 @@ namespace detail
         return values;
     }
 
+    /** Read the geometry of a bend from inputs: rc, phi and B, each optional
+     *
+     * Which combinations are allowed is checked by the element, @see mixin::BendGeometry
+     *
+     * @param pp_element the element being read
+     * @return rc in m, phi in degrees and B in T, each only if given
+     */
+    std::tuple<
+        std::optional<amrex::ParticleReal>,
+        std::optional<amrex::ParticleReal>,
+        std::optional<amrex::ParticleReal>
+    >
+    query_bend_geometry (amrex::ParmParse& pp_element)
+    {
+        auto query_optional = [&pp_element](char const * name) {
+            std::optional<amrex::ParticleReal> result;
+            amrex::ParticleReal value;
+            if (pp_element.queryWithParser(name, value)) { result = value; }
+            return result;
+        };
+        auto const rc = query_optional("rc");
+        auto const phi = query_optional("phi");
+        auto const B = query_optional("B");
+
+        if (elements::mixin::BendGeometry::is_legacy_unset_B(rc, phi, B)) {
+            ablastr::warn_manager::WMRecordWarning(
+                "ImpactX::read_element",
+                pp_element.getPrefix() + ".B = 0 together with " + pp_element.getPrefix() +
+                ".phi is deprecated and read as phi alone. Remove the B = 0 line.",
+                ablastr::warn_manager::WarnPriority::low
+            );
+        }
+
+        return {rc, phi, B};
+    }
+
 } // namespace detail
 
     /** Read a lattice element
@@ -169,21 +206,20 @@ namespace detail
             auto a = detail::query_alignment<Sbend>(pp_element);
             auto b = detail::query_aperture<Sbend>(pp_element);
 
-            amrex::ParticleReal rc;
-            pp_element.getWithParser("rc", rc);
+            auto const [rc, phi, B] = detail::query_bend_geometry(pp_element);
 
-            m_lattice.emplace_back( Sbend(ds, rc, a["dx"], a["dy"], a["rotation_degree"], b["aperture_x"], b["aperture_y"], nslice, element_name) );
+            m_lattice.emplace_back( Sbend(ds, rc, phi, B, a["dx"], a["dy"], a["rotation_degree"], b["aperture_x"], b["aperture_y"], nslice, element_name) );
         } else if (element_type == "cfbend")
         {
             auto const [ds, nslice] = detail::query_ds(pp_element, nslice_default);
             auto a = detail::query_alignment<CFbend>(pp_element);
             auto b = detail::query_aperture<CFbend>(pp_element);
 
-            amrex::ParticleReal rc, k;
-            pp_element.getWithParser("rc", rc);
+            auto const [rc, phi, B] = detail::query_bend_geometry(pp_element);
+            amrex::ParticleReal k;
             pp_element.getWithParser("k", k);
 
-            m_lattice.emplace_back( CFbend(ds, rc, k, a["dx"], a["dy"], a["rotation_degree"], b["aperture_x"], b["aperture_y"], nslice, element_name) );
+            m_lattice.emplace_back( CFbend(ds, rc, k, phi, B, a["dx"], a["dy"], a["rotation_degree"], b["aperture_x"], b["aperture_y"], nslice, element_name) );
         } else if (element_type == "dipedge")
         {
             auto a = detail::query_alignment<DipEdge>(pp_element);
@@ -486,12 +522,9 @@ element_name) );
             auto a = detail::query_alignment<ExactSbend>(pp_element);
             auto b = detail::query_aperture<ExactSbend>(pp_element);
 
-            amrex::ParticleReal phi;
-            amrex::ParticleReal B = ExactSbend::DEFAULT_B;
-            pp_element.getWithParser("phi", phi);
-            pp_element.queryAddWithParser("B", B);
+            auto const [rc, phi, B] = detail::query_bend_geometry(pp_element);
 
-            m_lattice.emplace_back( ExactSbend(ds, phi, B, a["dx"], a["dy"], a["rotation_degree"], b["aperture_x"], b["aperture_y"], nslice, element_name) );
+            m_lattice.emplace_back( ExactSbend(ds, phi, B, rc, a["dx"], a["dy"], a["rotation_degree"], b["aperture_x"], b["aperture_y"], nslice, element_name) );
         } else if (element_type == "uniform_acc_chromatic")
         {
             auto const [ds, nslice] = detail::query_ds(pp_element, nslice_default);
