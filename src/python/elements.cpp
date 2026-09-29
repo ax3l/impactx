@@ -2210,8 +2210,6 @@ void init_elements(py::module& m)
                  }
              ),
              py::arg("ds") = Programmable::DEFAULT_ds,
-             // no implicit conversion: a positional nslice from before this argument
-             // existed must raise instead of silently enabling the flag
              py::arg("includes_collective_effects").noconvert() =
                  Programmable::DEFAULT_includes_collective_effects,
              py::arg("nslice") = Programmable::DEFAULT_nslice,
