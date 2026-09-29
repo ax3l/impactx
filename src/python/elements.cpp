@@ -349,6 +349,26 @@ namespace
                 py::dict remaining;
                 for (auto const & item : overrides) { remaining[item.first] = item.second; }
 
+                // The geometry of a bend is one specification of rc, its angle and B, changed
+                // together, so that e.g. copy(rc=None, phi=10.0) switches from one to the other.
+                py::dict geometry;
+                if constexpr (elements::mixin::has_bend_geometry_v<Element>)
+                {
+                    for (char const * key : bend_geometry_names<Element>()) {
+                        if (remaining.contains(key)) {
+                            geometry[key] = remaining.attr("pop")(key);
+                        }
+                    }
+                }
+                // An override that removes a geometry parameter goes first, and one that
+                // only sets them goes after the coefficients: a combined-function bend must
+                // never hold its dipole field twice, as rc, phi or B and as a coefficient.
+                bool geometry_first = false;
+                for (auto const & item : geometry) {
+                    if (item.second.is_none()) { geometry_first = true; }
+                }
+                if (geometry_first) { copied.attr("set_geometry")(**geometry); }
+
                 // Parameters that only mean something as a pair are handed over together,
                 // the way the constructor takes them. Setting one and then the other would
                 // measure a new array against the one it is replacing.
@@ -368,18 +388,7 @@ namespace
                     }
                 }
 
-                // The geometry of a bend is one specification of rc, phi and B, changed
-                // together, so that e.g. copy(rc=None, phi=10.0) switches from one to the other.
-                if constexpr (elements::mixin::has_bend_geometry_v<Element>)
-                {
-                    py::dict geometry;
-                    for (char const * key : bend_geometry_names<Element>()) {
-                        if (remaining.contains(key)) {
-                            geometry[key] = remaining.attr("pop")(key);
-                        }
-                    }
-                    if (!geometry.empty()) { copied.attr("set_geometry")(**geometry); }
-                }
+                if (!geometry_first && !geometry.empty()) { copied.attr("set_geometry")(**geometry); }
 
                 // Apply the rest one at a time. Setting a parameter the element does not
                 // have has to be reported rather than quietly ignored, and `setattr` alone
@@ -1713,6 +1722,9 @@ void init_elements(py::module& m)
                 std::vector<amrex::ParticleReal>,
                 std::vector<amrex::ParticleReal>,
                 int,
+                std::optional<amrex::ParticleReal>,
+                std::optional<amrex::ParticleReal>,
+                std::optional<amrex::ParticleReal>,
                 amrex::ParticleReal,
                 amrex::ParticleReal,
                 amrex::ParticleReal,
@@ -1727,6 +1739,9 @@ void init_elements(py::module& m)
              py::arg("k_normal"),
              py::arg("k_skew"),
              py::arg("unit") = ExactCFbend::DEFAULT_unit,
+             py::arg("rc") = py::none(),
+             py::arg("phi") = py::none(),
+             py::arg("B") = py::none(),
              py::arg("dx") = ExactCFbend::DEFAULT_dx,
              py::arg("dy") = ExactCFbend::DEFAULT_dy,
              py::arg("rotation") = ExactCFbend::DEFAULT_rotation_degree,
@@ -1736,7 +1751,9 @@ void init_elements(py::module& m)
              py::arg("mapsteps") = ExactCFbend::DEFAULT_mapsteps,
              py::arg("nslice") = ExactCFbend::DEFAULT_nslice,
              py::arg("name") = py::none(),
-             "A thick combined function bending magnet using the exact nonlinear Hamiltonian."
+             "A thick combined function bending magnet using the exact nonlinear Hamiltonian.\n\n"
+             "The dipole field is given by k_normal[0], or else by exactly one of rc (m),\n"
+             "phi (degrees) or B (T), or by phi together with B; k_normal[0] must then be 0."
         )
         .def_property("unit",
             [](ExactCFbend & exact_cfbend) { return exact_cfbend.m_unit; },

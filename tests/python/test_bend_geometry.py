@@ -356,3 +356,128 @@ def test_thin_and_edge_dicts_round_trip(kind, radius):
     restored.from_dicts(lattice.to_dicts())
     extra = dict(in_degrees=True) if kind == "ThinDipole" else {}
     assert restored[0].to_dict(**extra) == pytest.approx(lattice[0].to_dict(**extra))
+
+
+# exact combined-function bends ###############################################
+
+
+def exact_cfbend(**kwargs):
+    """A combined-function bend with a quadrupole and a sextupole component"""
+    kwargs.setdefault("k_normal", [0.0, 0.3, 0.5])
+    kwargs.setdefault("k_skew", [0.0, 0.0, 0.1])
+    return elements.ExactCFbend(mapsteps=4, **kwargs)
+
+
+def track_beam(element, kin_energy_MeV=1.0e3):
+    """A few electrons with spin after the element, as rows of (x, px, y, py, t, pt, sx, sy, sz)"""
+    sim = ImpactX()
+    sim.particle_shape = 2
+    sim.slice_step_diagnostics = False
+    sim.diagnostics = False
+    sim.spin = True
+    sim.init_grids()
+    ref = sim.beam.ref
+    ref.set_species("electron").set_kin_energy_MeV(kin_energy_MeV)
+    qm_eev = -1.0 / 0.51099895000 / 1e6  # electron charge/mass in e / eV
+    offsets = [0.0, 1.0e-3, -2.0e-3]
+    sim.beam.add_n_particles(
+        offsets,
+        [0.0, -1.0e-3, 5.0e-4],
+        [0.0, 1.0e-4, 0.0],
+        [0.0, 2.0e-4, -1.0e-4],
+        [1.0e-4, 0.0, 0.0],
+        [0.0, 1.0e-3, -1.0e-3],
+        qm_eev,
+        1.0e-12,
+        sx=[1.0, 0.0, 0.6],
+        sy=[0.0, 1.0, 0.0],
+        sz=[0.0, 0.0, 0.8],
+    )
+    sim.lattice.append(element)
+    sim.track_particles()
+    df = sim.beam.to_df(local=True).sort_index()
+    columns = [
+        "position_x",
+        "momentum_x",
+        "position_y",
+        "momentum_y",
+        "position_t",
+        "momentum_t",
+        "spin_x",
+        "spin_y",
+        "spin_z",
+    ]
+    result = df[columns].to_numpy()
+    sim.finalize()
+    return result
+
+
+@pytest.mark.parametrize("spec", ["rc", "phi", "B", "phi_B"])
+@pytest.mark.parametrize("rc", [10.0, -10.0])
+def test_exact_cfbend_geometry_is_the_dipole_coefficient(spec, rc):
+    ref = electron()
+    by_coefficient = exact_cfbend(ds=0.5, k_normal=[1.0 / rc, 0.3, 0.5])
+    by_geometry = exact_cfbend(**geometries(0.5, rc, ref)[spec])
+
+    assert by_geometry.signed_rc(ref) == pytest.approx(rc, rel=1e-12)
+    np.testing.assert_allclose(
+        np.array(by_geometry.transfer_map(ref)),
+        np.array(by_coefficient.transfer_map(ref)),
+        rtol=1e-10,
+        atol=1e-14,
+    )
+    orbit, expected = track_reference(by_geometry), track_reference(by_coefficient)
+    for key, value in expected.items():
+        assert orbit[key] == pytest.approx(value, rel=1e-10, abs=1e-14), key
+    np.testing.assert_allclose(
+        track_beam(by_geometry), track_beam(by_coefficient), rtol=1e-9, atol=1e-14
+    )
+
+
+def test_exact_cfbend_dipole_is_given_once():
+    with pytest.raises(ValueError, match=r"k_normal\[0\] must be 0"):
+        exact_cfbend(ds=0.5, k_normal=[0.1, 0.3, 0.5], rc=10.0)
+
+    by_coefficient = exact_cfbend(ds=0.5, k_normal=[0.1, 0.3, 0.5])
+    assert (by_coefficient.rc, by_coefficient.phi, by_coefficient.B) == (
+        None,
+        None,
+        None,
+    )
+    with pytest.raises(ValueError, match=r"k_normal\[0\] must be 0"):
+        by_coefficient.set_geometry(rc=10.0)
+
+    by_geometry = exact_cfbend(ds=0.5, rc=10.0)
+    with pytest.raises(ValueError, match=r"k_normal\[0\] must be 0"):
+        by_geometry.set_coefficients([0.1, 0.3, 0.5], [0.0, 0.0, 0.1])
+    assert by_geometry.k_normal == [0.0, 0.3, 0.5]
+
+    # copy() switches between both, in either direction
+    switched = by_geometry.copy(
+        rc=None, k_normal=[0.1, 0.3, 0.5], k_skew=[0.0, 0.0, 0.1]
+    )
+    assert (switched.rc, switched.k_normal[0]) == (None, 0.1)
+    back = switched.copy(rc=10.0, k_normal=[0.0, 0.3, 0.5], k_skew=[0.0, 0.0, 0.1])
+    assert (back.rc, back.k_normal[0]) == (10.0, 0.0)
+
+
+def test_exact_cfbend_input_file_geometry(tmp_path):
+    inputs = tmp_path / "inputs"
+    inputs.write_text(
+        "lattice.elements = geo_ecf_b\n"
+        "geo_ecf_b.type = cfbend_exact\ngeo_ecf_b.ds = 0.5\n"
+        "geo_ecf_b.k_normal = 0.0 0.3\ngeo_ecf_b.k_skew = 0.0 0.0\n"
+        "geo_ecf_b.B = 0.5\n"
+    )
+
+    sim = ImpactX()
+    sim.load_inputs_file(str(inputs))
+    sim.particle_shape = 2
+    sim.slice_step_diagnostics = False
+    sim.diagnostics = False
+    sim.init_grids()
+    sim.init_lattice_elements_from_inputs()
+
+    bend = sim.lattice[0]
+    assert (bend.rc, bend.phi, bend.B) == (None, None, 0.5)
+    sim.finalize()

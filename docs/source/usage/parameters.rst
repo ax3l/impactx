@@ -608,7 +608,9 @@ and :math:`H_2` is the term containing the vector potential, which is a superpos
 
 The vector potential is obtained from Table XI of the above-cited reference.
 
-This element is defined via ``<cfbend_exact_name>.type = cfbend_exact`` and requires these additional parameters:
+This element is defined via ``<cfbend_exact_name>.type = cfbend_exact``.
+The dipole field is given by the first normal coefficient, or else by exactly one of ``rc``, ``phi`` or ``B``, or by ``phi`` together with ``B``, see :ref:`element-bend-geometry`; the first normal coefficient must then be 0.
+This requires these additional parameters:
 
 .. pp:param:: <cfbend_exact_name>.ds
     :type: ``float``
@@ -632,6 +634,24 @@ This element is defined via ``<cfbend_exact_name>.type = cfbend_exact`` and requ
 
     Specification of units for the multipole coefficients.
     By default, the multipole coefficients are normalized by magnetic rigidity. Use ``unit=1`` to specify using SI units.
+
+.. pp:param:: <cfbend_exact_name>.rc
+    :type: ``float``
+    :unit: m
+
+    The radius of curvature.
+
+.. pp:param:: <cfbend_exact_name>.phi
+    :type: ``float``
+    :unit: degree
+
+    The bend angle.
+
+.. pp:param:: <cfbend_exact_name>.B
+    :type: ``float``
+    :unit: T
+
+    The magnetic field.
 
 .. pp:param:: <cfbend_exact_name>.dx/dy
     :link_aliases: <cfbend_exact_name>.dx <cfbend_exact_name>.dy

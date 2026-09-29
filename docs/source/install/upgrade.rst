@@ -211,6 +211,8 @@ ThinDipole or DipEdge with ``rc = 0`` does not kick (it previously divided by ze
 New in this release
 """""""""""""""""""
 
+- :py:class:`~impactx.elements.ExactCFbend` takes its dipole field as ``rc``, ``phi`` or ``B``, as an alternative
+  to its first normal multipole coefficient (:ref:`element-bend-geometry`).
 - :py:meth:`~impactx.elements.Element.copy` on every element type, for a new element with
   the same configuration.
   Keyword arguments give the copy a different value for a parameter, so that one element

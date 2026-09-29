@@ -1686,6 +1686,8 @@ The bends :py:class:`~impactx.elements.Sbend`, :py:class:`~impactx.elements.Exac
 or by ``phi`` together with ``B``: a bend of fixed angle whose radius follows from the field, as in a cyclotron.
 Its arc length ``rc * phi`` then depends on the beam energy, and ``ds`` only advances the integrated path length ``s``.
 
+:py:class:`~impactx.elements.ExactCFbend` takes the same parameters, or none of them: its dipole field is then its first normal multipole coefficient.
+
 The thin :py:class:`~impactx.elements.ThinDipole` is specified by its bend angle ``theta`` in degrees together with one of ``rc`` or ``B``,
 and the edge :py:class:`~impactx.elements.DipEdge` by one of ``rc`` or ``B``, the radius of curvature of the bend it belongs to.
 
@@ -2133,7 +2135,7 @@ The aperture is disabled entirely only if both planes are zero or less, which is
    :param aperture_y: vertical half-aperture (elliptical) in m
    :param name: an optional name for the element
 
-.. py:class:: impactx.elements.ExactCFbend(ds, k_normal, k_skew, unit=0, dx=0, dy=0, rotation=0, aperture_x=0, aperture_y=0, int_order=2, mapsteps=10, nslice=1, name=None)
+.. py:class:: impactx.elements.ExactCFbend(ds, k_normal, k_skew, unit=0, rc=None, phi=None, B=None, dx=0, dy=0, rotation=0, aperture_x=0, aperture_y=0, int_order=2, mapsteps=10, nslice=1, name=None)
 
    A thick combined-function dipole magnet using the exact relativistic Hamiltonian, including all kinematic nonlinearities.
    The user must provide arrays containing normal and skew multipole coefficients, which can be specified up to decapole order.
@@ -2152,10 +2154,16 @@ The aperture is disabled entirely only if both planes are zero or less, which is
 
    The vector potential is obtained from Table XI of the above-cited reference.
 
+   The dipole field is given by the first normal coefficient, or else by exactly one of ``rc``, ``phi`` or ``B``,
+   or by ``phi`` together with ``B``, see :ref:`element-bend-geometry`; the first normal coefficient must then be 0.
+
    :param ds: Segment length in m.
    :param k_normal: Array of normal multipole coefficients (in meter^(-m) OR in T/meter^(m-1) for m=1,2,3,..)
    :param k_skew: Array of skew multipole coefficients (in meter^(-m) OR in T/meter^(m-1) for m=1,2,3,...)
    :param unit: specification of units for multipole coefficients (by default, these are normalized by magnetic rigidity)
+   :param rc: Radius of curvature in m.
+   :param phi: Bend angle in degrees.
+   :param B: Magnetic field in T.
    :param dx: horizontal translation error in m
    :param dy: vertical translation error in m
    :param rotation: rotation error in the transverse plane [degrees]

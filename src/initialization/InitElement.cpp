@@ -522,7 +522,9 @@ element_name) );
             detail::queryAddResize(pp_element, "k_normal", k_normal);
             detail::queryAddResize(pp_element, "k_skew", k_skew);
 
-            m_lattice.emplace_back( ExactCFbend(ds, k_normal, k_skew, units, a["dx"], a["dy"], a["rotation_degree"], b["aperture_x"], b["aperture_y"], int_order, mapsteps, nslice, element_name) );
+            auto const [rc, phi, B] = detail::query_bend_geometry<ExactCFbend>(pp_element);
+
+            m_lattice.emplace_back( ExactCFbend(ds, k_normal, k_skew, units, rc, phi, B, a["dx"], a["dy"], a["rotation_degree"], b["aperture_x"], b["aperture_y"], int_order, mapsteps, nslice, element_name) );
         } else if (element_type == "sbend_exact")
         {
             auto const [ds, nslice] = detail::query_ds(pp_element, nslice_default);

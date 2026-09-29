@@ -444,6 +444,30 @@ def test_ExactCFbend(sim, unit, k_normal, k_skew):
     )
 
 
+@pytest.mark.parametrize(
+    "geometry", BEND_GEOMETRIES.values(), ids=BEND_GEOMETRIES.keys()
+)
+@pytest.mark.parametrize("sim", [True, False], indirect=True, ids=["spin", "nospin"])
+def test_ExactCFbend_geometry(sim, geometry):
+    """the dipole field given by rc, phi or B instead of k_normal[0]"""
+    roundtrip(
+        elements.ExactCFbend(
+            ds=0.5,
+            k_normal=[0.0, 0.015, -0.002],
+            k_skew=[0.0, 0.01, 0.001],
+            int_order=4,
+            mapsteps=mapsteps,
+            nslice=nslice,
+            **geometry,
+            **PIPE_KWARGS,
+        ),
+        sim,
+        phase_atol=1e-4 if Config.precision == "SINGLE" else 1e-8,
+        spin_atol=5e-6 if Config.precision == "SINGLE" else spin_atol,
+        spin=sim.spin,
+    )
+
+
 @pytest.mark.parametrize("sim", [True, False], indirect=True, ids=["spin", "nospin"])
 @pytest.mark.parametrize(("unit", "k"), [(0, 1.0), (1, 3.5)], ids=["madx", "marylie"])
 def test_ExactQuad(sim, unit, k):

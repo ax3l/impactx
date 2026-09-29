@@ -41,8 +41,9 @@ namespace impactx::elements::mixin
      * field. Its arc length ``rc * phi`` then depends on the beam energy, and ``ds`` only
      * advances the integrated path length ``s``.
      *
-     * A thin bend is specified by its bend angle, called ``theta``, together with ``rc`` or
-     * ``B``. The edge of a bend is specified by ``rc`` or ``B``.
+     * A combined-function bend can also leave all of them unset; its dipole field then comes
+     * from its multipole coefficients. A thin bend is specified by its bend angle, called
+     * ``theta``, together with ``rc`` or ``B``. The edge of a bend is specified by ``rc`` or ``B``.
      *
      * A radius of ``rc = 0`` or a field of ``B = 0`` is an infinite radius, and a bend with an
      * infinite radius or a bend angle of 0 is straight: its reference orbit is not bent and
@@ -56,9 +57,10 @@ namespace impactx::elements::mixin
         /** Which kind of bend element this is, which sets how it can be specified */
         enum class Kind : int
         {
-            thick, //!< ds plus one of rc, phi or B, or phi together with B
-            thin,  //!< the bend angle theta together with rc or B
-            edge   //!< one of rc or B
+            thick,    //!< ds plus one of rc, phi or B, or phi together with B
+            combined, //!< as thick, or none of them (the dipole field is a multipole coefficient)
+            thin,     //!< the bend angle theta together with rc or B
+            edge      //!< one of rc or B
         };
 
         /** How the geometry of the bend is specified */
@@ -68,7 +70,8 @@ namespace impactx::elements::mixin
             phi,    //!< bend angle
             B,      //!< magnetic field
             phi_B,  //!< bend angle and magnetic field
-            phi_rc  //!< bend angle and radius of curvature (thin bends)
+            phi_rc, //!< bend angle and radius of curvature (thin bends)
+            none    //!< not specified here (combined-function bends)
         };
 
         /** The name of the bend angle parameter: ``theta`` for thin bends, ``phi`` otherwise
@@ -155,10 +158,12 @@ namespace impactx::elements::mixin
 
             switch (m_kind) {
                 case Kind::thick:
+                case Kind::combined:
                     if (has_rc && has_angle) {
                         throw std::invalid_argument(type + ": rc cannot be combined with phi. " + allowed());
                     }
                     if (!has_rc && !has_angle && !has_B) {
+                        if (m_kind == Kind::combined) { m_spec = Spec::none; break; }
                         throw std::invalid_argument(type + ": the bend needs " + allowed(false));
                     }
                     m_spec = has_rc ? Spec::rc
@@ -242,7 +247,17 @@ namespace impactx::elements::mixin
             if (is_B) { m_B = value; }
         }
 
-        /** Is the reference orbit a straight line? */
+        /** Is the geometry specified by rc, an angle or B? False only for a combined-function
+         *  bend whose dipole field is a multipole coefficient.
+         */
+        AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+        bool
+        has_geometry () const
+        {
+            return m_spec != Spec::none;
+        }
+
+        /** Is the reference orbit a straight line? (false if not specified here) */
         AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
         bool
         is_straight () const
@@ -254,14 +269,15 @@ namespace impactx::elements::mixin
                 case Spec::phi: return m_phi == 0_prt;
                 case Spec::B: return m_B == 0_prt;
                 case Spec::phi_rc: return m_phi == 0_prt || m_rc == 0_prt;
+                case Spec::none: return false;
                 default: return m_phi == 0_prt || m_B == 0_prt;  // Spec::phi_B
             }
         }
 
         /** Signed radius of curvature of the reference orbit in m, from rc or B
          *
-         * A straight bend returns +infinity. The radius of a thick bend specified by its
-         * angle alone depends on its length, @see ThickBend::signed_rc
+         * A straight bend returns +infinity, as does a bend not specified here. The radius of a
+         * thick bend specified by its angle alone depends on its length, @see ThickBend::signed_rc
          *
          * @param refpart reference particle
          */
@@ -269,7 +285,7 @@ namespace impactx::elements::mixin
         amrex::ParticleReal
         signed_rc (RefPart const & refpart) const
         {
-            if (is_straight() || m_spec == Spec::phi) {
+            if (is_straight() || m_spec == Spec::phi || m_spec == Spec::none) {
                 return std::numeric_limits<amrex::ParticleReal>::infinity();
             }
             if (m_spec == Spec::rc || m_spec == Spec::phi_rc) { return m_rc; }
@@ -308,6 +324,9 @@ namespace impactx::elements::mixin
             switch (m_kind) {
                 case Kind::thin: return by + "theta together with one of rc or B.";
                 case Kind::edge: return by + "one of rc or B.";
+                case Kind::combined:
+                    return by + "exactly one of rc, phi or B, or phi together with B, "
+                           "or by none of them.";
                 default: return by + "exactly one of rc, phi or B, or phi together with B.";
             }
         }
@@ -334,6 +353,7 @@ namespace impactx::elements::mixin
          * @param rc radius of curvature in m, if given
          * @param phi_degree bend angle in degrees, if given
          * @param B magnetic field in T, if given
+         * @param kind thick, or combined for a bend whose dipole field may be a multipole
          * @throws std::invalid_argument if the combination does not specify one geometry
          */
         ThickBend (
@@ -342,10 +362,11 @@ namespace impactx::elements::mixin
             int nslice,
             std::optional<amrex::ParticleReal> rc,
             std::optional<amrex::ParticleReal> phi_degree,
-            std::optional<amrex::ParticleReal> B
+            std::optional<amrex::ParticleReal> B,
+            Kind kind = Kind::thick
         )
         : Thick(ds, nslice),
-          BendGeometry(bend_kind, element_type, rc, phi_degree, B)
+          BendGeometry(kind, element_type, rc, phi_degree, B)
         {
         }
 
