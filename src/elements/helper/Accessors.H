@@ -235,6 +235,28 @@ namespace impactx::elements
         }, element_variant);
     }
 
+    /** Does the push of this element already model collective effects?
+     *
+     * If true, the tracking loop applies no collective effect kicks inside this element.
+     * Only elements with a user-supplied push can declare this, @see
+     * mixin::can_include_collective_effects_v. It is false for all other elements.
+     *
+     * @param element_variant the element to query
+     * @return true if collective effects are modeled by the element push itself
+     */
+    template<ElementRepr T_Element>
+    inline bool
+    includes_collective_effects (T_Element const & element_variant)
+    {
+        return elements::visit([](auto const & element) {
+            if constexpr (mixin::can_include_collective_effects_v<decltype(element)>) {
+                return element.m_includes_collective_effects;
+            } else {
+                return false;
+            }
+        }, element_variant);
+    }
+
     /** Reverse an element in place
      *
      * After this call, pushing particles through the element reverses the effect of the

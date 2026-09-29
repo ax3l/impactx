@@ -95,6 +95,18 @@ namespace impactx::elements::mixin
             std::void_t<decltype(std::declval<std::decay_t<T_Element> &>().m_nslice = 1)>
         > : std::true_type {};
 
+        /** Does this element have a publicly writable ``m_includes_collective_effects`` member? */
+        template<typename T_Element, typename = void>
+        struct has_m_includes_collective_effects : std::false_type {};
+
+        template<typename T_Element>
+        struct has_m_includes_collective_effects<
+            T_Element,
+            std::void_t<decltype(
+                std::declval<std::decay_t<T_Element> &>().m_includes_collective_effects = true
+            )>
+        > : std::true_type {};
+
     } // namespace detail
 
     /** Can this element's segment length be set?
@@ -124,6 +136,16 @@ namespace impactx::elements::mixin
         std::bool_constant<!is_thin_v<T_Element>>,
         detail::has_m_nslice<T_Element>
     >;
+
+    /** Can this element declare that its push already models collective effects?
+     *
+     * True for Programmable, whose push is a user callback that may, e.g., call an external
+     * code computing beam self-fields or plasma wakefields. @see includes_collective_effects
+     * in helper/Accessors.H for the run-time value.
+     */
+    template<typename T_Element>
+    inline constexpr bool can_include_collective_effects_v =
+        detail::has_m_includes_collective_effects<T_Element>::value;
 
     /** Can this element be subdivided by overriding its slice count?
      *

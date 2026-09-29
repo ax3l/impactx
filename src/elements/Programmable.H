@@ -44,17 +44,21 @@ namespace impactx::elements
 
         static constexpr amrex::ParticleReal DEFAULT_ds = 0;
         static constexpr int DEFAULT_nslice = mixin::Thick::DEFAULT_nslice;
+        static constexpr bool DEFAULT_includes_collective_effects = false;
 
         /** This element can be programmed
          *
          * @param ds Segment length in m
          * @param nslice number of slices used for the application of space charge
+         * @param includes_collective_effects the push hooks already model collective effects,
+         *                                    @see m_includes_collective_effects
          */
         ProgrammableGPU (
             amrex::ParticleReal ds = DEFAULT_ds,
-            int nslice = DEFAULT_nslice
+            int nslice = DEFAULT_nslice,
+            bool includes_collective_effects = DEFAULT_includes_collective_effects
         )
-          : m_ds(ds), m_nslice(nslice)
+          : m_ds(ds), m_nslice(nslice), m_includes_collective_effects(includes_collective_effects)
         {}
 
         /** Reverse the element (not supported for Programmable) */
@@ -144,6 +148,18 @@ namespace impactx::elements
          * must opt-in their guarantee that their code is thread-safe.
          */
         bool m_threadsafe = false;
+
+        /** The push hooks already model collective effects over the length of this element
+         *
+         * If true, the tracking loop applies no collective effect kicks (space charge,
+         * wakefields, CSR, ISR) inside this element, so that effects modeled by the hooks
+         * are not applied twice. An example is a push that calls an external code which
+         * computes the beam self-fields or plasma wakefields.
+         *
+         * The default value is false: the tracking loop applies collective effects to this
+         * element like to any other element of finite length.
+         */
+        bool m_includes_collective_effects = DEFAULT_includes_collective_effects;
 
         std::function<void(ImpactXParticleContainer *, int, int)> m_push;  //! hook for push of whole container (pc, step, period)
         std::function<void(ImpactXParticleContainer::iterator *, RefPart &)> m_beam_particles;  //! hook for beam particles (pti, ref)
