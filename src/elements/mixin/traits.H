@@ -11,6 +11,7 @@
 #define IMPACTX_ELEMENTS_MIXIN_TRAITS_H
 
 #include "alignment.H"
+#include "includescollectiveeffects.H"
 #include "named.H"
 #include "pipeaperture.H"
 #include "spintransport.H"
@@ -69,6 +70,15 @@ namespace impactx::elements::mixin
     inline constexpr bool has_synchrotron_radiation_v =
         std::is_base_of_v<SynchrotronRadiation, std::decay_t<T_Element>>;
 
+    /** Does this element carry the ``includes_collective_effects`` flag
+     *  (@see IncludesCollectiveEffects)?
+     *
+     * @see includes_collective_effects in helper/Accessors.H for the run-time value.
+     */
+    template<typename T_Element>
+    inline constexpr bool has_includes_collective_effects_flag_v =
+        std::is_base_of_v<IncludesCollectiveEffects, std::decay_t<T_Element>>;
+
     namespace detail
     {
         /** Does this element have a publicly writable ``m_ds`` member?
@@ -93,18 +103,6 @@ namespace impactx::elements::mixin
         struct has_m_nslice<
             T_Element,
             std::void_t<decltype(std::declval<std::decay_t<T_Element> &>().m_nslice = 1)>
-        > : std::true_type {};
-
-        /** Does this element have a publicly writable ``m_includes_collective_effects`` member? */
-        template<typename T_Element, typename = void>
-        struct has_m_includes_collective_effects : std::false_type {};
-
-        template<typename T_Element>
-        struct has_m_includes_collective_effects<
-            T_Element,
-            std::void_t<decltype(
-                std::declval<std::decay_t<T_Element> &>().m_includes_collective_effects = true
-            )>
         > : std::true_type {};
 
     } // namespace detail
@@ -136,16 +134,6 @@ namespace impactx::elements::mixin
         std::bool_constant<!is_thin_v<T_Element>>,
         detail::has_m_nslice<T_Element>
     >;
-
-    /** Can this element declare that its push already models collective effects?
-     *
-     * True for Programmable, whose push is a user callback that may, e.g., call an external
-     * code computing beam self-fields or plasma wakefields. @see includes_collective_effects
-     * in helper/Accessors.H for the run-time value.
-     */
-    template<typename T_Element>
-    inline constexpr bool can_include_collective_effects_v =
-        detail::has_m_includes_collective_effects<T_Element>::value;
 
     /** Can this element be subdivided by overriding its slice count?
      *

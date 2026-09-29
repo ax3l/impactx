@@ -154,6 +154,20 @@ They have been finalized by then, so keeping them would leave elements that are 
 e.g., a :py:class:`~impactx.elements.BeamMonitor` with its output closed, still in the
 lattice.
 
+``Programmable``: ``nslice`` and ``name`` moved to the 3rd and 4th argument
+"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+:py:class:`~impactx.elements.Programmable` takes the new ``includes_collective_effects`` as its
+2nd argument, so ``nslice`` and ``name`` moved back by one position.
+
+**What to check in your scripts:** a ``Programmable(...)`` call that passes ``nslice`` or
+``name`` by position raises a ``TypeError``. Pass them by keyword:
+
+.. code-block:: python
+
+   pge = elements.Programmable(0.5, 2)                # before
+   pge = elements.Programmable(ds=0.5, nslice=2)      # now
+
 New in this release
 """""""""""""""""""
 
@@ -174,3 +188,6 @@ New in this release
   :py:meth:`~impactx.elements.KnownElementsList.pop_back` returns the element it removed, and a position that is not
   there raises ``IndexError``.
 - ``lattice.generation`` counts the structural edits made to a lattice.
+- :py:attr:`Programmable.includes_collective_effects <impactx.elements.Programmable.includes_collective_effects>`
+  declares that a push already models collective effects, e.g., by calling an external code.
+  ImpactX then applies no additional space charge, wakefield, CSR or ISR kicks for this element.

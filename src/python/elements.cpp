@@ -2195,26 +2195,27 @@ void init_elements(py::module& m)
                     prg,
                     std::make_pair("ds", prg.m_ds),
                     std::make_pair("nslice", prg.m_nslice),
-                    std::make_pair("includes_collective_effects", prg.m_includes_collective_effects)
+                    std::make_pair("includes_collective_effects", prg.includes_collective_effects())
                 );
             }
         )
         .def(py::init(
                  [](
                      amrex::ParticleReal ds,
+                     bool includes_collective_effects,
                      int nslice,
-                     std::optional<std::string> name,
-                     bool includes_collective_effects
+                     std::optional<std::string> name
                  ) {
-                     return Programmable(ds, nslice, includes_collective_effects, name);
+                     return Programmable(ds, includes_collective_effects, nslice, name);
                  }
              ),
              py::arg("ds") = Programmable::DEFAULT_ds,
+             // no implicit conversion: a positional nslice from before this argument
+             // existed must raise instead of silently enabling the flag
+             py::arg("includes_collective_effects").noconvert() =
+                 Programmable::DEFAULT_includes_collective_effects,
              py::arg("nslice") = Programmable::DEFAULT_nslice,
              py::arg("name") = py::none(),
-             py::kw_only(),
-             py::arg("includes_collective_effects") =
-                 Programmable::DEFAULT_includes_collective_effects,
              "A programmable beam optics element."
         )
         .def_property("nslice",
@@ -2235,13 +2236,13 @@ void init_elements(py::module& m)
             "allow threading via OpenMP for the particle iterator loop, default=False (note: if OMP backend is active)"
         )
         .def_property("includes_collective_effects",
-            [](Programmable & p) { return p.m_includes_collective_effects; },
+            [](Programmable & p) { return p.includes_collective_effects(); },
             [](Programmable & p, bool includes_collective_effects) {
                 p.m_includes_collective_effects = includes_collective_effects;
             },
             "the push hooks already model collective effects over the length of this element: "
-            "if True, no space charge, wakefield, CSR or ISR kicks are applied inside this "
-            "element, default=False"
+            "if True, no additional space charge, wakefield, CSR or ISR kicks are applied by "
+            "ImpactX, default=False"
         )
         .def_property("push",
               [](Programmable & p) { return p.m_push; },

@@ -10,6 +10,7 @@
 import math
 
 import numpy as np
+import pytest
 
 import amrex.space3d as amr
 from impactx import ImpactX, elements
@@ -190,9 +191,21 @@ def test_programmable_includes_collective_effects_property():
     assert own != default
     assert own.copy().includes_collective_effects is True
 
-    default.includes_collective_effects = True
-    assert default.includes_collective_effects is True
-    assert own == default
+    # setting the property is equivalent to the constructor argument
+    toggled = elements.Programmable(ds=DS)
+    toggled.includes_collective_effects = True
+    assert toggled.includes_collective_effects is True
+    assert toggled == own
+
+    # positional order: ds, includes_collective_effects, nslice, name
+    positional = elements.Programmable(DS, True, 3, "p")
+    assert positional.includes_collective_effects is True
+    assert positional.nslice == 3
+    assert positional.name == "p"
+
+    # a positional nslice from the previous argument order must not enable the flag
+    with pytest.raises(TypeError):
+        elements.Programmable(DS, 3)
 
     # the dict round-trips through the constructor
     kwargs = {k: v for k, v in own.to_dict().items() if k != "type"}

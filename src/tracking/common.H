@@ -68,8 +68,9 @@ namespace impactx
      *  kick over zero length leaves the momenta unchanged. Typically, thin elements are
      *  embedded in drift elements, which experience the collective effect kicks.
      *  Elements whose push already models collective effects (@see
-     *  elements::includes_collective_effects) also apply ``M`` alone, so that these effects
-     *  are not applied twice.
+     *  elements::includes_collective_effects) also apply ``M`` alone: ImpactX applies no
+     *  additional collective effect kicks for them, so that these effects are not applied
+     *  twice.
      *
      *  The reference-particle edge is set once per element and in both directions:
      *  s-dependent (soft-edge) maps integrate their on-axis field profile relative to it,
@@ -190,8 +191,10 @@ namespace impactx
             // zero-length elements receive no kick: it would leave the momenta unchanged
             bool const finite_length = slice_ds != amrex::ParticleReal(0);
             // elements that model collective effects in their own push receive no kick either
-            bool const receives_kicks = !elements::includes_collective_effects(element_variant);
-            bool const kick = collective_effects && finite_length && receives_kicks;
+            bool const element_includes_collective_effects =
+                elements::includes_collective_effects(element_variant);
+            bool const kick =
+                collective_effects && finite_length && !element_includes_collective_effects;
 
             // second-order, time-symmetric Strang split of the kick ``K`` and transport ``M``
             bool const strang = kick && strang_split;
