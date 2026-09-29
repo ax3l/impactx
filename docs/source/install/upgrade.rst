@@ -204,6 +204,10 @@ Its linear transfer map, used in envelope tracking, previously used ``ds / rc`` 
 A bend with ``rc = 0``, ``phi = 0`` or ``B = 0`` is straight: :py:meth:`~impactx.elements.Element.signed_rc` returns ``inf``,
 and CSR and ISR are not applied in it.
 
+:py:class:`~impactx.elements.ThinDipole` takes its angle ``theta`` together with one of ``rc`` or ``B``, and
+:py:class:`~impactx.elements.DipEdge` one of ``rc`` or ``B``. Their ``rc`` property is ``None`` when ``B`` is given, and a
+ThinDipole or DipEdge with ``rc = 0`` does not kick (it previously divided by zero).
+
 New in this release
 """""""""""""""""""
 

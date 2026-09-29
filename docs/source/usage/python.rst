@@ -1686,7 +1686,10 @@ The bends :py:class:`~impactx.elements.Sbend`, :py:class:`~impactx.elements.Exac
 or by ``phi`` together with ``B``: a bend of fixed angle whose radius follows from the field, as in a cyclotron.
 Its arc length ``rc * phi`` then depends on the beam energy, and ``ds`` only advances the integrated path length ``s``.
 
-A bend with ``rc = 0``, ``phi = 0`` or ``B = 0`` is straight: its reference orbit is a drift.
+The thin :py:class:`~impactx.elements.ThinDipole` is specified by its bend angle ``theta`` in degrees together with one of ``rc`` or ``B``,
+and the edge :py:class:`~impactx.elements.DipEdge` by one of ``rc`` or ``B``, the radius of curvature of the bend it belongs to.
+
+A bend with ``rc = 0``, ``B = 0`` or a bend angle of 0 is straight: its reference orbit is not bent, and a straight edge does not focus.
 The rigidity carries the sign of the charge, so a bend specified by ``B`` bends particles of opposite charge the opposite way.
 
 .. code-block:: python
@@ -1703,8 +1706,9 @@ A property can change a parameter that specifies the bend; :py:meth:`~impactx.el
 
    Change how the bend is specified.
 
-   The keyword arguments replace the current values of ``rc`` (m), ``phi`` (degrees) and ``B`` (T), and ``None`` removes one.
-   The result must be exactly one of them, or ``phi`` together with ``B``.
+   The keyword arguments replace the current values of ``rc`` (m), the bend angle (``phi`` or ``theta``, in degrees) and ``B`` (T),
+   and ``None`` removes one.
+   The result must be one of the combinations described above for the kind of bend.
    :py:meth:`~impactx.elements.Element.copy` applies these parameters the same way.
 
    .. code-block:: python
@@ -1969,7 +1973,7 @@ The aperture is disabled entirely only if both planes are zero or less, which is
 
       focusing t strength in 1/m
 
-.. py:class:: impactx.elements.DipEdge(psi, rc, g, R=1, K0=pi**2/6, K1=0, K2=1, K3=1/6, K4=0, K5=0, K6=0, model="linear", location="entry", modify_ref_part=False, dx=0, dy=0, rotation=0, aperture_x=0, aperture_y=0, name=None)
+.. py:class:: impactx.elements.DipEdge(psi, rc=None, g, B=None, R=1, K0=pi**2/6, K1=0, K2=1, K3=1/6, K4=0, K5=0, K6=0, model="linear", location="entry", modify_ref_part=False, dx=0, dy=0, rotation=0, aperture_x=0, aperture_y=0, name=None)
 
    Edge focusing associated with bend entry or exit
 
@@ -2005,9 +2009,12 @@ The aperture is disabled entirely only if both planes are zero or less, which is
    * the option ``modify_ref_part = True``, in which the shift due to the fringe field is applied to the reference particle phase space vector, but not to the beam particle phase space vector --
    this model makes sense if the shift due to the fringe field is considered as part of the baseline design, so that downstream elements are aligned with the "shifted" reference trajectory
 
+   The radius of curvature of the bend is specified by one of ``rc`` or ``B``, see :ref:`element-bend-geometry`.
+
    :param psi: Pole face angle [radians]
    :param rc: Radius of curvature [m]
    :param g: Gap parameter [m]
+   :param B: Magnetic field [T]
    :param R: Length scale used in fringe field integrals [m]
    :param K0: Fringe field integral [unitless]
    :param K1: Fringe field integral [unitless]
@@ -2872,12 +2879,15 @@ The aperture is disabled entirely only if both planes are zero or less, which is
       Model it as several shorter elements to resolve collective effects along
       its length.
 
-.. py:class:: impactx.elements.ThinDipole(theta, rc, dx=0, dy=0, rotation=0, aperture_x=0, aperture_y=0, name=None)
+.. py:class:: impactx.elements.ThinDipole(theta, rc=None, B=None, dx=0, dy=0, rotation=0, aperture_x=0, aperture_y=0, name=None)
 
    A general thin dipole element.
 
+   The bend is specified by its angle ``theta`` together with one of ``rc`` or ``B``, see :ref:`element-bend-geometry`.
+
    :param theta: Bend angle (degrees)
    :param rc: Effective curvature radius (meters)
+   :param B: Magnetic field (T)
    :param dx: horizontal translation error in m
    :param dy: vertical translation error in m
    :param rotation: rotation error in the transverse plane [degrees]

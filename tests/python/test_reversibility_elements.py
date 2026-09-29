@@ -662,10 +662,11 @@ def test_TaperedPL(sim, unit, k):
     )
 
 
+@pytest.mark.parametrize("radius", [dict(rc=1.0), dict(B=-3.0)], ids=["rc", "B"])
 @pytest.mark.parametrize("sim", [True, False], indirect=True, ids=["spin", "nospin"])
-def test_ThinDipole(sim):
+def test_ThinDipole(sim, radius):
     roundtrip(
-        elements.ThinDipole(theta=0.45, rc=1.0, **ALIGNMENT_KWARGS),
+        elements.ThinDipole(theta=0.45, **radius, **ALIGNMENT_KWARGS),
         sim,
         spin=sim.spin,
     )
@@ -780,17 +781,19 @@ def test_RFCavity(sim):
     ],
     ids=["linear-zero-gap", "linear-finite-gap", "nonlinear-finite-gap"],
 )
+@pytest.mark.parametrize(
+    "radius", [dict(rc=-10.3462283686195526), dict(B=0.3)], ids=["rc", "B"]
+)
 # WARNING:  The orbit in DipEdge is not reversed simply by taking entry->exit. The inverse map needs to be fixed.  See Issue #1562.
 # Spin reversibility is not validated here either: it inherits the same
 # entry->exit inverse-map problem and leaves an O(1e-4) residual in all three
 # models. Keep nospin-only (the benchmark covers the forward spin push).
-def test_DipEdge(sim, model, g, K2):
-    rc = 10.3462283686195526
+def test_DipEdge(sim, model, g, K2, radius):
     psi = 0.048345620280243
     roundtrip(
         elements.DipEdge(
             psi=-psi,
-            rc=-rc,
+            **radius,
             g=g,
             K2=K2,
             model=model,

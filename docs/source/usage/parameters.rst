@@ -763,7 +763,9 @@ To model this correction, we allow two options in the dipedge model:
 * the option ``modify_ref_part = True`` in which the shift due to the fringe field is applied to the reference particle phase space vector, but not to the beam particle phase space vector --
   this model makes sense if the shift due to the fringe field is considered as part of the baseline design, so that downstream elements are aligned with the "shifted" reference trajectory
 
-This element is defined via ``<dipedge_name>.type = dipedge`` and requires these additional parameters:
+This element is defined via ``<dipedge_name>.type = dipedge``.
+The radius of curvature of the bend is specified by one of ``rc`` or ``B``, see :ref:`element-bend-geometry`.
+This requires these additional parameters:
 
 .. pp:param:: <dipedge_name>.psi
     :type: ``float``
@@ -776,6 +778,12 @@ This element is defined via ``<dipedge_name>.type = dipedge`` and requires these
     :unit: m
 
     The bend radius.
+
+.. pp:param:: <dipedge_name>.B
+    :type: ``float``
+    :unit: T
+
+    The magnetic field of the bend.
 
 .. pp:param:: <dipedge_name>.g
     :type: ``float``
@@ -2329,6 +2337,7 @@ This element is defined via ``<tapered_pl_name>.type = tapered_pl`` and requires
 
 ``thin_dipole`` for a thin dipole element,
 e.g. for an element ``<thin_dipole_name>.type = thin_dipole``.
+The bend is specified by its angle ``theta`` together with one of ``rc`` or ``B``, see :ref:`element-bend-geometry`.
 This requires these additional parameters:
 
 .. pp:param:: <thin_dipole_name>.theta
@@ -2342,6 +2351,12 @@ This requires these additional parameters:
     :unit: m
 
     Effective radius of curvature.
+
+.. pp:param:: <thin_dipole_name>.B
+    :type: ``float``
+    :unit: T
+
+    Magnetic field.
 
 .. pp:param:: <thin_dipole_name>.dx/dy
     :link_aliases: <thin_dipole_name>.dx <thin_dipole_name>.dy

@@ -31,7 +31,7 @@ namespace impactx::elements::mixin
     /** This is a helper class for elements that bend the reference orbit: the parameters
      *  that specify the bend
      *
-     * The geometry of the bend is given by its segment length ``ds`` plus exactly one of
+     * A thick bend (@see ThickBend) is specified by its segment length ``ds`` plus exactly one of
      *
      * - ``rc``: the radius of curvature in m,
      * - ``phi``: the bend angle in degrees, so that ``rc = ds / phi``,
@@ -41,65 +41,94 @@ namespace impactx::elements::mixin
      * field. Its arc length ``rc * phi`` then depends on the beam energy, and ``ds`` only
      * advances the integrated path length ``s``.
      *
-     * A bend with ``rc = 0``, ``phi = 0`` or ``B = 0`` is straight: its reference orbit is a
-     * drift and ``signed_rc`` is infinite. Because the rigidity carries the sign of the
-     * charge, a bend specified by ``B`` bends particles of opposite charge the opposite way.
+     * A thin bend is specified by its bend angle, called ``theta``, together with ``rc`` or
+     * ``B``. The edge of a bend is specified by ``rc`` or ``B``.
+     *
+     * A radius of ``rc = 0`` or a field of ``B = 0`` is an infinite radius, and a bend with an
+     * infinite radius or a bend angle of 0 is straight: its reference orbit is not bent and
+     * ``signed_rc`` is infinite. Because the rigidity carries the sign of the charge, a bend
+     * specified by ``B`` bends particles of opposite charge the opposite way.
      *
      * The center of curvature lies at ``x = -signed_rc``.
      */
     struct BendGeometry
     {
+        /** Which kind of bend element this is, which sets how it can be specified */
+        enum class Kind : int
+        {
+            thick, //!< ds plus one of rc, phi or B, or phi together with B
+            thin,  //!< the bend angle theta together with rc or B
+            edge   //!< one of rc or B
+        };
+
         /** How the geometry of the bend is specified */
         enum class Spec : int
         {
-            rc,    //!< radius of curvature
-            phi,   //!< bend angle
-            B,     //!< magnetic field
-            phi_B  //!< bend angle and magnetic field
+            rc,     //!< radius of curvature
+            phi,    //!< bend angle
+            B,      //!< magnetic field
+            phi_B,  //!< bend angle and magnetic field
+            phi_rc  //!< bend angle and radius of curvature (thin bends)
         };
 
-        /** Is this the legacy way of leaving ``B`` unset, a bend angle with ``B = 0``?
+        /** The name of the bend angle parameter: ``theta`` for thin bends, ``phi`` otherwise
+         *
+         * @param kind the kind of bend
+         */
+        static constexpr char const *
+        angle_name (Kind kind)
+        {
+            return kind == Kind::thin ? "theta" : "phi";
+        }
+
+        /** Is this the legacy way of leaving ``B`` unset: a thick bend with an angle and ``B = 0``?
          *
          * Callers accept it as a bend angle alone and emit a deprecation warning in their
          * own channel (Python warning, input-file warning).
          *
+         * @param kind the kind of bend
          * @param rc radius of curvature in m, if given
-         * @param phi_degree bend angle in degrees, if given
+         * @param angle_degree bend angle in degrees, if given
          * @param B magnetic field in T, if given
          */
         static bool
         is_legacy_unset_B (
+            Kind kind,
             std::optional<amrex::ParticleReal> rc,
-            std::optional<amrex::ParticleReal> phi_degree,
+            std::optional<amrex::ParticleReal> angle_degree,
             std::optional<amrex::ParticleReal> B
         )
         {
-            return !rc.has_value() && phi_degree.has_value() && B.has_value() && *B == 0;
+            return kind == Kind::thick &&
+                   !rc.has_value() && angle_degree.has_value() && B.has_value() && *B == 0;
         }
 
         /** The parameters that specify a bend
          *
+         * @param kind the kind of bend
          * @param element_type the element type, used in error messages
          * @param rc radius of curvature in m, if given
-         * @param phi_degree bend angle in degrees, if given
+         * @param angle_degree bend angle in degrees, if given
          * @param B magnetic field in T, if given
          * @throws std::invalid_argument if the combination does not specify one geometry
          */
         BendGeometry (
+            Kind kind,
             char const * element_type,
             std::optional<amrex::ParticleReal> rc,
-            std::optional<amrex::ParticleReal> phi_degree,
+            std::optional<amrex::ParticleReal> angle_degree,
             std::optional<amrex::ParticleReal> B
         )
+        : m_kind(kind)
         {
-            set_geometry(element_type, rc, phi_degree, B);
+            set_geometry(element_type, rc, angle_degree, B);
         }
 
         /** Change how the geometry of the bend is specified
          *
          * @param element_type the element type, used in error messages
          * @param rc radius of curvature in m, if given
-         * @param phi_degree bend angle in degrees, if given
+         * @param angle_degree bend angle in degrees, if given
          * @param B magnetic field in T, if given
          * @throws std::invalid_argument if the combination does not specify one geometry;
          *         the element is left unchanged then
@@ -107,52 +136,73 @@ namespace impactx::elements::mixin
         void set_geometry (
             char const * element_type,
             std::optional<amrex::ParticleReal> rc,
-            std::optional<amrex::ParticleReal> phi_degree,
+            std::optional<amrex::ParticleReal> angle_degree,
             std::optional<amrex::ParticleReal> B
         )
         {
             using namespace amrex::literals; // for _rt and _prt
 
-            if (is_legacy_unset_B(rc, phi_degree, B)) { B.reset(); }
+            std::string const type(element_type);
+            std::string const angle(angle_name(m_kind));
+            bool const has_rc = rc.has_value();
+            bool const has_angle = angle_degree.has_value();
+            // the legacy B = 0 with an angle leaves B unset
+            bool const has_B = B.has_value() && !is_legacy_unset_B(m_kind, rc, angle_degree, B);
 
-            if (rc.has_value() && (phi_degree.has_value() || B.has_value())) {
-                throw std::invalid_argument(
-                    std::string(element_type) + ": rc cannot be combined with phi or B. "
-                    "Specify the bend by exactly one of rc, phi or B, or by phi together with B.");
+            if (has_rc && has_B) {
+                throw std::invalid_argument(type + ": rc cannot be combined with B. " + allowed());
             }
 
-            if (rc.has_value()) {
-                m_spec = Spec::rc;
-            } else if (phi_degree.has_value() && B.has_value()) {
-                m_spec = Spec::phi_B;
-            } else if (phi_degree.has_value()) {
-                m_spec = Spec::phi;
-            } else if (B.has_value()) {
-                m_spec = Spec::B;
-            } else {
-                throw std::invalid_argument(
-                    std::string(element_type) + ": the bend needs one of rc, phi or B, "
-                    "or phi together with B.");
+            switch (m_kind) {
+                case Kind::thick:
+                    if (has_rc && has_angle) {
+                        throw std::invalid_argument(type + ": rc cannot be combined with phi. " + allowed());
+                    }
+                    if (!has_rc && !has_angle && !has_B) {
+                        throw std::invalid_argument(type + ": the bend needs " + allowed(false));
+                    }
+                    m_spec = has_rc ? Spec::rc
+                           : has_angle && has_B ? Spec::phi_B
+                           : has_angle ? Spec::phi
+                           : Spec::B;
+                    break;
+                case Kind::thin:
+                    if (!has_angle || (!has_rc && !has_B)) {
+                        throw std::invalid_argument(type + ": the bend needs " + allowed(false));
+                    }
+                    m_spec = has_rc ? Spec::phi_rc : Spec::phi_B;
+                    break;
+                case Kind::edge:
+                    if (has_angle) {
+                        throw std::invalid_argument(type + ": the edge has no " + angle + ". " + allowed());
+                    }
+                    if (!has_rc && !has_B) {
+                        throw std::invalid_argument(type + ": the edge needs " + allowed(false));
+                    }
+                    m_spec = has_rc ? Spec::rc : Spec::B;
+                    break;
             }
 
-            m_rc = rc.value_or(0_prt);
-            m_phi = phi_degree.value_or(0_prt) * bend_degree2rad;
-            m_B = B.value_or(0_prt);
+            m_rc = has_rc ? *rc : 0_prt;
+            m_phi = (has_angle ? *angle_degree : 0_prt) * bend_degree2rad;
+            m_B = has_B ? *B : 0_prt;
         }
 
         /** The radius of curvature in m, if the bend is specified by it */
         [[nodiscard]] std::optional<amrex::ParticleReal>
         rc_parameter () const
         {
-            if (m_spec == Spec::rc) { return m_rc; }
+            if (m_spec == Spec::rc || m_spec == Spec::phi_rc) { return m_rc; }
             return std::nullopt;
         }
 
         /** The bend angle in degrees, if the bend is specified by it */
         [[nodiscard]] std::optional<amrex::ParticleReal>
-        phi_parameter () const
+        angle_parameter () const
         {
-            if (m_spec == Spec::phi || m_spec == Spec::phi_B) { return m_phi / bend_degree2rad; }
+            if (m_spec == Spec::phi || m_spec == Spec::phi_B || m_spec == Spec::phi_rc) {
+                return m_phi / bend_degree2rad;
+            }
             return std::nullopt;
         }
 
@@ -167,7 +217,7 @@ namespace impactx::elements::mixin
         /** Change one parameter of the bend, keeping how its geometry is specified
          *
          * @param element_type the element type, used in error messages
-         * @param name the parameter: "rc", "phi" (in degrees) or "B"
+         * @param name the parameter: "rc", the angle (@see angle_name, in degrees) or "B"
          * @param value the new value
          * @throws std::invalid_argument if the bend is not specified by this parameter;
          *         @see set_geometry changes how it is specified
@@ -178,17 +228,17 @@ namespace impactx::elements::mixin
             amrex::ParticleReal value
         )
         {
-            bool const is_rc = name == "rc" && m_spec == Spec::rc;
-            bool const is_phi = name == "phi" && (m_spec == Spec::phi || m_spec == Spec::phi_B);
-            bool const is_B = name == "B" && (m_spec == Spec::B || m_spec == Spec::phi_B);
-            if (!is_rc && !is_phi && !is_B) {
+            bool const is_rc = name == "rc" && rc_parameter().has_value();
+            bool const is_angle = name == angle_name(m_kind) && angle_parameter().has_value();
+            bool const is_B = name == "B" && B_parameter().has_value();
+            if (!is_rc && !is_angle && !is_B) {
                 throw std::invalid_argument(
                     std::string(element_type) + ": this bend is not specified by " + name +
                     ". Use set_geometry() to change how the bend is specified.");
             }
 
             if (is_rc) { m_rc = value; }
-            if (is_phi) { m_phi = value * bend_degree2rad; }
+            if (is_angle) { m_phi = value * bend_degree2rad; }
             if (is_B) { m_B = value; }
         }
 
@@ -203,8 +253,27 @@ namespace impactx::elements::mixin
                 case Spec::rc: return m_rc == 0_prt;
                 case Spec::phi: return m_phi == 0_prt;
                 case Spec::B: return m_B == 0_prt;
+                case Spec::phi_rc: return m_phi == 0_prt || m_rc == 0_prt;
                 default: return m_phi == 0_prt || m_B == 0_prt;  // Spec::phi_B
             }
+        }
+
+        /** Signed radius of curvature of the reference orbit in m, from rc or B
+         *
+         * A straight bend returns +infinity. The radius of a thick bend specified by its
+         * angle alone depends on its length, @see ThickBend::signed_rc
+         *
+         * @param refpart reference particle
+         */
+        AMREX_GPU_HOST_DEVICE AMREX_FORCE_INLINE
+        amrex::ParticleReal
+        signed_rc (RefPart const & refpart) const
+        {
+            if (is_straight() || m_spec == Spec::phi) {
+                return std::numeric_limits<amrex::ParticleReal>::infinity();
+            }
+            if (m_spec == Spec::rc || m_spec == Spec::phi_rc) { return m_rc; }
+            return refpart.rigidity_Tm() / m_B;  // Spec::B, Spec::phi_B
         }
 
         /** Reverse the bend angle
@@ -221,10 +290,27 @@ namespace impactx::elements::mixin
         static constexpr amrex::ParticleReal bend_degree2rad =
             ablastr::constant::math::pi_v<amrex::ParticleReal> / amrex::ParticleReal{180};
 
+        Kind m_kind;               //! the kind of bend, which sets how it can be specified
         Spec m_spec;               //! how the geometry is specified
-        amrex::ParticleReal m_rc;  //! radius of curvature in m (Spec::rc)
-        amrex::ParticleReal m_phi; //! bend angle in rad (Spec::phi, Spec::phi_B)
+        amrex::ParticleReal m_rc;  //! radius of curvature in m (Spec::rc, Spec::phi_rc)
+        amrex::ParticleReal m_phi; //! bend angle in rad (Spec::phi, Spec::phi_B, Spec::phi_rc)
         amrex::ParticleReal m_B;   //! magnetic field in T (Spec::B, Spec::phi_B)
+
+      private:
+        /** The allowed combinations of parameters, for error messages
+         *
+         * @param prefix start with "Specify the bend by"
+         */
+        [[nodiscard]] std::string
+        allowed (bool prefix = true) const
+        {
+            std::string const by = prefix ? "Specify the bend by " : "";
+            switch (m_kind) {
+                case Kind::thin: return by + "theta together with one of rc or B.";
+                case Kind::edge: return by + "one of rc or B.";
+                default: return by + "exactly one of rc, phi or B, or phi together with B.";
+            }
+        }
     };
 
     /** This is a helper class for thick elements that bend the reference orbit
@@ -238,6 +324,8 @@ namespace impactx::elements::mixin
     : public Thick,
       public BendGeometry
     {
+        static constexpr Kind bend_kind = Kind::thick;
+
         /** A thick element that bends the reference orbit
          *
          * @param element_type the element type, used in error messages
@@ -257,7 +345,7 @@ namespace impactx::elements::mixin
             std::optional<amrex::ParticleReal> B
         )
         : Thick(ds, nslice),
-          BendGeometry(element_type, rc, phi_degree, B)
+          BendGeometry(bend_kind, element_type, rc, phi_degree, B)
         {
         }
 
@@ -271,13 +359,8 @@ namespace impactx::elements::mixin
         amrex::ParticleReal
         signed_rc (RefPart const & refpart) const
         {
-            if (is_straight()) { return std::numeric_limits<amrex::ParticleReal>::infinity(); }
-
-            switch (m_spec) {
-                case Spec::rc: return m_rc;
-                case Spec::phi: return m_ds / m_phi;
-                default: return refpart.rigidity_Tm() / m_B;  // Spec::B, Spec::phi_B
-            }
+            if (m_spec == Spec::phi && !is_straight()) { return m_ds / m_phi; }
+            return BendGeometry::signed_rc(refpart);
         }
 
         /** Signed bend angle of the reference orbit in one slice, in rad

@@ -238,7 +238,8 @@ def test_input_file_geometry(tmp_path):
     """Input files take the same rc, phi and B keys"""
     inputs = tmp_path / "inputs"
     inputs.write_text(
-        "lattice.elements = geo_sb_rc geo_sb_phi geo_esb_b geo_esb_phib geo_cf_phi\n"
+        "lattice.elements = geo_sb_rc geo_sb_phi geo_esb_b geo_esb_phib geo_cf_phi"
+        " geo_td_b geo_de_b\n"
         "geo_sb_rc.type = sbend\ngeo_sb_rc.ds = 0.5\ngeo_sb_rc.rc = 10.0\n"
         "geo_sb_phi.type = sbend\ngeo_sb_phi.ds = 0.5\ngeo_sb_phi.phi = 3.0\n"
         "geo_esb_b.type = sbend_exact\ngeo_esb_b.ds = 0.5\ngeo_esb_b.B = 0.5\n"
@@ -246,6 +247,9 @@ def test_input_file_geometry(tmp_path):
         "geo_esb_phib.phi = 180.0\ngeo_esb_phib.B = 1.0\n"
         "geo_cf_phi.type = cfbend\ngeo_cf_phi.ds = 0.5\ngeo_cf_phi.phi = 3.0\n"
         "geo_cf_phi.k = 0.3\n"
+        "geo_td_b.type = thin_dipole\ngeo_td_b.theta = 1.0\ngeo_td_b.B = 0.5\n"
+        "geo_de_b.type = dipedge\ngeo_de_b.psi = 0.1\ngeo_de_b.g = 0.05\n"
+        "geo_de_b.B = 0.5\n"
     )
 
     sim = ImpactX()
@@ -265,8 +269,90 @@ def test_input_file_geometry(tmp_path):
         (None, 0.5, "geo_esb_b"),
         (None, 1.0, "geo_esb_phib"),
         (None, None, "geo_cf_phi"),
+        (None, 0.5, "geo_td_b"),
+        (None, 0.5, "geo_de_b"),
     ]
     assert sim.lattice[1].phi == pytest.approx(3.0)
     assert sim.lattice[4].phi == pytest.approx(3.0)
 
     sim.finalize()
+
+
+# thin bends and edges ########################################################
+
+THIN_AND_EDGE = {
+    "ThinDipole": lambda **radius: elements.ThinDipole(theta=1.0, **radius),
+    "DipEdge": lambda **radius: elements.DipEdge(psi=0.1, g=0.05, **radius),
+}
+
+
+@pytest.mark.parametrize("kind", THIN_AND_EDGE.keys())
+@pytest.mark.parametrize("rc", [10.0, -10.0])
+def test_thin_and_edge_radius_or_field(kind, rc):
+    ref = electron()
+    by_radius = THIN_AND_EDGE[kind](rc=rc)
+    by_field = THIN_AND_EDGE[kind](B=ref.rigidity_Tm / rc)
+    assert (by_field.rc, by_radius.B) == (None, None)
+    np.testing.assert_allclose(
+        np.array(by_field.transfer_map(ref)),
+        np.array(by_radius.transfer_map(ref)),
+        rtol=1e-12,
+        atol=1e-15,
+    )
+
+
+@pytest.mark.parametrize(
+    "construct",
+    [
+        lambda: elements.ThinDipole(theta=1.0),
+        lambda: elements.ThinDipole(theta=1.0, rc=10.0, B=0.5),
+        lambda: elements.DipEdge(psi=0.1, g=0.05),
+        lambda: elements.DipEdge(psi=0.1, g=0.05, rc=10.0, B=0.5),
+    ],
+    ids=["thin_theta", "thin_rc_B", "edge_none", "edge_rc_B"],
+)
+def test_thin_and_edge_need_one_radius(construct):
+    with pytest.raises(ValueError, match="rc"):
+        construct()
+
+
+def test_the_angle_of_a_thin_bend_is_theta():
+    thin = elements.ThinDipole(theta=1.0, rc=10.0)
+    thin.set_geometry(rc=None, B=0.5)
+    assert (thin.rc, thin.B) == (None, 0.5)
+    assert thin.to_dict(in_degrees=True)["theta"] == pytest.approx(1.0)
+    with pytest.raises(TypeError, match="unexpected keyword"):
+        thin.set_geometry(phi=2.0)
+    with pytest.raises(ValueError):
+        thin.set_geometry(theta=None)
+
+    edge = elements.DipEdge(psi=0.1, g=0.05, rc=10.0)
+    assert not hasattr(edge, "phi") and not hasattr(edge, "theta")
+    with pytest.raises(TypeError, match="unexpected keyword"):
+        edge.set_geometry(phi=2.0)
+
+
+@pytest.mark.parametrize("kind", THIN_AND_EDGE.keys())
+@pytest.mark.parametrize("radius", [dict(rc=0.0), dict(B=0.0)], ids=["rc", "B"])
+def test_a_straight_thin_bend_or_edge_does_not_kick(kind, radius):
+    ref = electron()
+    np.testing.assert_array_equal(
+        np.array(THIN_AND_EDGE[kind](**radius).transfer_map(ref)), np.eye(6)
+    )
+
+
+def test_a_straight_thin_bend_does_not_bend_the_orbit():
+    orbit = track_reference(elements.ThinDipole(theta=1.0, rc=0.0))
+    assert (orbit["px"], orbit["x"]) == (0.0, 0.0)
+
+
+@pytest.mark.parametrize("kind", THIN_AND_EDGE.keys())
+@pytest.mark.parametrize("radius", [dict(rc=10.0), dict(B=0.5)], ids=["rc", "B"])
+def test_thin_and_edge_dicts_round_trip(kind, radius):
+    lattice = elements.KnownElementsList()
+    lattice.append(THIN_AND_EDGE[kind](name="b", **radius))
+
+    restored = elements.KnownElementsList()
+    restored.from_dicts(lattice.to_dicts())
+    extra = dict(in_degrees=True) if kind == "ThinDipole" else {}
+    assert restored[0].to_dict(**extra) == pytest.approx(lattice[0].to_dict(**extra))
