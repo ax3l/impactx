@@ -830,9 +830,9 @@ def _filter_kwargs(d: dict) -> dict:
     """Filter a to_dict() result into valid constructor kwargs.
 
     Removes 'type' (not a constructor argument) and, for thin elements, 'ds':
-    ``to_dict()`` reports ``ds`` for every element, but the constructors of thin
-    elements (subclasses of ``elements.mixin.Thin``, such as ``Marker`` and
-    ``Aperture``) take no ``ds``, while all other elements require it, even when it
+    ``to_dict()`` reports ``ds = 0.0`` for thin elements (subclasses of
+    ``elements.mixin.Thin``, such as ``Marker`` and ``Aperture``), but their
+    constructors take no ``ds``, while all other elements require it, even when it
     is zero.
 
     Args:
@@ -844,9 +844,14 @@ def _filter_kwargs(d: dict) -> dict:
     Raises:
         KeyError: If 'type' key is missing
         AttributeError: If element type is not found in elements module
+        ValueError: If a thin element has a nonzero 'ds'
     """
     element_class = getattr(elements, d["type"])
     is_thin = issubclass(element_class, elements.mixin.Thin)
+    if is_thin and d.get("ds", 0.0) != 0.0:
+        raise ValueError(
+            f"{d['type']} is a thin element and has no length, but ds={d['ds']} was given"
+        )
     return {k: v for k, v in d.items() if k != "type" and not (is_thin and k == "ds")}
 
 

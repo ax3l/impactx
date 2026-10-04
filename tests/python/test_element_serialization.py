@@ -988,6 +988,16 @@ def test_zero_length_thick_elements_next_to_thin_elements():
             assert dicts_equal(d1, d2), f"Original: {d1}\nReconstructed: {d2}"
 
 
+def test_thin_element_with_nonzero_ds_is_rejected():
+    """A thin element has no length: a nonzero ``ds`` in its dict is an error."""
+    d = elements.Marker(name="m1").to_dict()
+    assert d["ds"] == 0.0
+    d["ds"] = 0.5
+
+    with pytest.raises(ValueError, match="Marker is a thin element"):
+        elements.KnownElementsList().from_dicts([d])
+
+
 def test_lattice_rebuild_covers_all_element_types(all_elements):
     """The same coverage through the public API that depends on cloning."""
     lattice, _ = all_elements
