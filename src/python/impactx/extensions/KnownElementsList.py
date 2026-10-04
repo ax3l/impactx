@@ -825,60 +825,29 @@ def has_kind(self, kind_pattern) -> bool:
 
 import math
 
-# Memo for _ctor_accepts_ds(), keyed by element class. Element classes whose
-# constructor signature could not be read are not cached.
-_CTOR_ACCEPTS_DS: dict = {}
-
-
-def _ctor_accepts_ds(element_class):
-    """Whether ``element_class.__init__`` takes a ``ds`` argument.
-
-    ``inspect.signature`` does not work on pybind11 methods, so read the argument list
-    off the signature line that pybind11 writes into ``__init__.__doc__``.
-
-    Args:
-        element_class: An element class from :mod:`impactx.elements`
-
-    Returns:
-        bool: True if the constructor takes ``ds``, False if it does not, or None if
-        the signature is unavailable (a build compiled without docstrings).
-    """
-    if element_class in _CTOR_ACCEPTS_DS:
-        return _CTOR_ACCEPTS_DS[element_class]
-
-    doc = element_class.__init__.__doc__ or ""
-    if "__init__(" not in doc:
-        return None
-
-    accepts = bool(re.search(r"[(,]\s*ds:", doc))
-    _CTOR_ACCEPTS_DS[element_class] = accepts
-    return accepts
-
 
 def _filter_kwargs(d: dict) -> dict:
     """Filter a to_dict() result into valid constructor kwargs.
 
-    Removes 'type' (not a constructor argument) and 'ds' for element types whose
-    constructor does not take it: ``to_dict()`` reports ``ds`` for every element, but
-    thin elements such as ``Marker`` and ``Aperture`` accept no ``ds``, while thick
-    elements require it even when it is zero.
+    Removes 'type' (not a constructor argument) and, for thin elements, 'ds':
+    ``to_dict()`` reports ``ds`` for every element, but the constructors of thin
+    elements (subclasses of ``elements.mixin.Thin``, such as ``Marker`` and
+    ``Aperture``) take no ``ds``, while all other elements require it, even when it
+    is zero.
 
     Args:
-        d: Dictionary from element.to_dict()
+        d: Dictionary from element.to_dict(), must include 'type' key
 
     Returns:
         dict: Filtered dictionary suitable for element constructor
+
+    Raises:
+        KeyError: If 'type' key is missing
+        AttributeError: If element type is not found in elements module
     """
-    kwargs = {k: v for k, v in d.items() if k != "type"}
-    if "ds" in kwargs:
-        element_class = getattr(elements, d["type"], None) if "type" in d else None
-        accepts_ds = None if element_class is None else _ctor_accepts_ds(element_class)
-        if accepts_ds is None:
-            # Unknown signature: a zero ``ds`` is the thin-element case in practice.
-            accepts_ds = kwargs["ds"] != 0.0
-        if not accepts_ds:
-            del kwargs["ds"]
-    return kwargs
+    element_class = getattr(elements, d["type"])
+    is_thin = issubclass(element_class, elements.mixin.Thin)
+    return {k: v for k, v in d.items() if k != "type" and not (is_thin and k == "ds")}
 
 
 def _rad2deg(radians: float) -> float:

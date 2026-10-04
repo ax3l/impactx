@@ -868,13 +868,49 @@ def test_copy_covers_all_element_types(all_elements):
     assert not failures, "elements that cannot be cloned:\n  " + "\n  ".join(failures)
 
 
-def test_zero_length_thick_element_roundtrip(all_elements):
-    """Thick elements with ``ds=0.0`` must survive ``from_dicts()`` and ``to_py()``.
+def _require_constructor_signatures():
+    """Skip the calling test if pybind11 docstrings carry no constructor signatures."""
+    if get_constructor_params(elements.Drift) is None:
+        pytest.skip("constructor signatures are not in the docstrings of this build")
 
-    ``to_dict()`` reports ``ds`` for thin and thick elements alike, so its value alone
-    cannot tell whether the constructor accepts it. Dropping ``ds`` whenever it was
-    zero left every zero-length thick element unconstructible.
+
+def test_thin_elements_are_those_without_ds():
+    """Exactly the thin elements have constructors without ``ds``.
+
+    ``to_dict()`` reports ``ds`` for every element, and unpacking it into a
+    constructor drops ``ds`` for subclasses of ``elements.mixin.Thin`` only.
     """
+    _require_constructor_signatures()
+
+    element_classes = [
+        cls
+        for cls in vars(elements).values()
+        if isinstance(cls, type) and hasattr(cls, "to_dict")
+    ]
+    assert element_classes, "no element classes found"
+
+    mismatches = []
+    for cls in element_classes:
+        constructor_params = get_constructor_params(cls)
+        assert constructor_params is not None, f"{cls.__name__}: unreadable signature"
+        takes_ds = "ds" in constructor_params
+        is_thin = issubclass(cls, elements.mixin.Thin)
+        if takes_ds == is_thin:
+            mismatches.append(f"{cls.__name__}: thin={is_thin}, takes ds={takes_ds}")
+
+    assert not mismatches, (
+        "elements.mixin.Thin disagrees with the constructor signature:\n  "
+        + "\n  ".join(mismatches)
+    )
+
+
+def test_zero_length_thick_element_roundtrip(all_elements):
+    """Thick elements with ``ds=0.0`` survive ``from_dicts()`` and ``to_py()``.
+
+    ``to_dict()`` reports ``ds`` for thin and thick elements alike, so its value
+    alone does not tell whether the constructor takes it.
+    """
+    _require_constructor_signatures()
     lattice, _ = all_elements
 
     tested = []
@@ -883,7 +919,8 @@ def test_zero_length_thick_element_roundtrip(all_elements):
         if type_name in SKIP_ELEMENTS:
             continue
         constructor_params = get_constructor_params(type(element))
-        if constructor_params is None or "ds" not in constructor_params:
+        assert constructor_params is not None, f"{type_name}: unreadable signature"
+        if "ds" not in constructor_params:
             continue
         element.ds = 0.0
         tested.append(type_name)
@@ -905,13 +942,20 @@ def test_zero_length_thick_element_roundtrip(all_elements):
 
     lattice2 = elements.KnownElementsList()
     lattice2.from_dicts(dicts)
-    assert [d["ds"] for d in lattice2.to_dicts()] == [d["ds"] for d in dicts]
 
     # the generated source has to keep ``ds`` as well to stay executable
     namespace = {}
     exec(lattice.to_py(), namespace)
     lattice3 = namespace["get_lattice"]()
-    assert [d["ds"] for d in lattice3.to_dicts()] == [d["ds"] for d in dicts]
+
+    for how, rebuilt in (("from_dicts()", lattice2), ("to_py()", lattice3)):
+        assert len(rebuilt) == len(lattice), how
+        for i, (d1, d2) in enumerate(zip(dicts, rebuilt.to_dicts())):
+            assert dicts_equal(d1, d2), (
+                f"{how} roundtrip failed at index {i} ({d1['type']}):\n"
+                f"  Original: {d1}\n"
+                f"  Reconstructed: {d2}"
+            )
 
 
 def test_zero_length_thick_elements_next_to_thin_elements():
@@ -924,9 +968,10 @@ def test_zero_length_thick_elements_next_to_thin_elements():
             elements.Drift(ds=1.0, name="d1"),
         ]
     )
+    dicts = lattice.to_dicts()
 
     lattice2 = elements.KnownElementsList()
-    lattice2.from_dicts(lattice.to_dicts())
+    lattice2.from_dicts(dicts)
 
     namespace = {}
     exec(lattice.to_py(), namespace)
@@ -939,8 +984,8 @@ def test_zero_length_thick_elements_next_to_thin_elements():
             "Quad",
             "Drift",
         ]
-        assert [e.name for e in rebuilt] == ["m1", "d0", "q0", "d1"]
-        assert [e.ds for e in rebuilt[1:]] == [0.0, 0.0, 1.0]
+        for d1, d2 in zip(dicts, rebuilt.to_dicts()):
+            assert dicts_equal(d1, d2), f"Original: {d1}\nReconstructed: {d2}"
 
 
 def test_lattice_rebuild_covers_all_element_types(all_elements):
