@@ -208,7 +208,11 @@ namespace impactx::elements
                     v2 = Complex(u - vertices_x[i+1], v-vertices_y[i+1]);
                     thetasum += arg(v2 * v1conj);
                 }
-                inside_aperture = abs(thetasum/(2*ablastr::constant::math::pi)) > 1.0e-12_prt;
+                // The angle sum over 2 pi is the winding number, an integer. Round it
+                // rather than test it against zero: outside, the roundoff of the summed
+                // angles is ~1e-7 in single precision (~1e-16 in double) and grows with
+                // the number of vertices, so it must not count as inside.
+                inside_aperture = abs(thetasum/(2*ablastr::constant::math::pi)) > 0.5_prt;
             }
 
             // For transmit (default): invalidate if outside aperture
